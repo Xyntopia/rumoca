@@ -28,7 +28,7 @@ aims to allow you to use the best tool for the job at hand.
 * [JAX](https://github.com/jax-ml/jax): 
     * Written in Python
     * Automatic Differentiation
-    * Machine learning communicty
+    * Machine learning community
 * [PyCollimator](https://github.com/collimator-ai/pycollimator): 
     * Written in Python
     * JAX based
@@ -118,7 +118,7 @@ This package uses the standard cargo conventions for rust.
 cargo build
 cargo run
 cargo test
-cargo run -- tests/templates/bouncing_ball.mo -t tests/templates/sympy.jinja
+cargo run -- tests/models/bouncing_ball.mo -t tests/templates/sympy.jinja
 ```
 
 This package uses the standard cargo installation conventions.
