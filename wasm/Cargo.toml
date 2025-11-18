@@ -1,0 +1,37 @@
+[package]
+name = "rumoca-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "WASM wrapper for Rumoca Modelica Translator"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "rumoca_wasm"
+path = "src/wasm.rs"
+
+[dependencies]
+# Use the root crate. Adjust path if your workspace layout differs.
+rumoca = { path = ".." }
+
+# Web-friendly logger optional; we’ll gate verbose prints via console_log.
+wasm-bindgen = "0.2"
+# Logging to console in WASM (optional but handy)
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+log = "0.4"
+# MD5 in wasm
+md-5 = "0.10"
+js-sys = "0.3"   # for timing/log helpers if desired
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz"]
