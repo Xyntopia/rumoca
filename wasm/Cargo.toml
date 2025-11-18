@@ -15,18 +15,24 @@ path = "src/wasm.rs"
 # Use the root crate. Adjust path if your workspace layout differs.
 rumoca = { path = ".." }
 
-# Web-friendly logger optional; we’ll gate verbose prints via console_log.
-wasm-bindgen = "0.2"
-# Logging to console in WASM (optional but handy)
-console_error_panic_hook = "0.1"
-console_log = "1.0"
-log = "0.4"
-# MD5 in wasm
-md-5 = "0.10"
-js-sys = "0.3"   # for timing/log helpers if desired
+# IMPORTANT: Enable the js feature for getrandom to work in WASM
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
 
-[dev-dependencies]
-wasm-bindgen-test = "0.3"
+# Web-friendly logger optional; we'll gate verbose prints via console_log.
+wasm-bindgen = "0.2.105"
+
+# Logging to console in WASM (optional but handy)
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+log = "0.4.28"
+
+# MD5 in wasm
+md-5 = "0.10.6"
+js-sys = "0.3.82"
+
+[features]
+default = []
+wasm = []
 
 [profile.release]
 opt-level = "z"
