@@ -10,14 +10,8 @@ pub fn start() {
     // Better panic messages in the browser console
     console_error_panic_hook::set_once();
 
-    // Often a no-op in the browser, but harmless:
-    #[allow(unused)]
-    {
-        std::env::set_var("RUST_BACKTRACE", "1");
-    }
-
     // Optional: set up logging
-    let _ = console_log::init_with_level(log::Level::Debug);
+    let _ = console_log::init_with_level(Level::Debug);
 
     // Default to warn unless user sets something else externally
     // let _ = console_log::init_with_level(Level::Warn);

@@ -11,13 +11,17 @@ cargo install wasm-pack
 cd wasm
 
 # build the wasm
-# For bundlers:
-    wasm-pack build . --release --target bundler
 # For web (native ESM in browsers):
     wasm-pack build . --release --target web
+# For bundlers:
+    wasm-pack build . --release --target bundler
 # For Node.js:
     wasm-pack build . --release --target nodejs
 ```
+
+### Note:
+
+Support for browsers with vite seems to work best with the "web" target.
 
 ## Debug
 

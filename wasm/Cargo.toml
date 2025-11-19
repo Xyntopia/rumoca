@@ -30,6 +30,13 @@ log = "0.4.28"
 md-5 = "0.10.6"
 js-sys = "0.3.82"
 
+# it looks like we currently don't need this anymore, as the new
+# parol v4.0.1 runtime supports wasm out of the box.
+#[patch.crates-io]
+# we currently need this in order to make scnr browser compatible!
+#scnr = { git = "file://./scnr", branch = "main" }
+#scnr = { git = "https://github.com/yeus/scnr.git", branch = "main" }
+
 [features]
 default = []
 wasm = []
