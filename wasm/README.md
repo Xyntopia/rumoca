@@ -18,3 +18,11 @@ cd wasm
 # For Node.js:
     wasm-pack build . --release --target nodejs
 ```
+
+## Debug
+
+We can debug rumoca on the browser by building it the following way:
+
+```sh
+wasm-pack build . --dev --target web
+```
