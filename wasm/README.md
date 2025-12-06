@@ -42,16 +42,10 @@ cd wasm && wasm-pack build . --release --target bundler &&  npm pack pkg
 
 You can then manually upload this `.tgz` file to your private server (e.g. via `scp` or `rsync`).
 
-> If you prefer not to use `npm pack`, you can replace the last command with `tar`:
->
-> ```sh
-> cd wasm && \
->   wasm-pack build . --release --target bundler && \
->   cd pkg && \
->   tar czf rumoca-wasm.tar.gz .
-> ```
->
-> This creates a `rumoca-wasm-0.1.0.tar.gz` archive containing the package.
+### Note
+
+In order to use this rumoca-wasm with the "vite" bundler, as of 2025/12, you will have to use
+the vite-plugin-wasm module!
 
 ## Debug
 
