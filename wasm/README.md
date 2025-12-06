@@ -1,5 +1,14 @@
 # Compile rumoca to web assembly
 
+## Directory Layout
+
+proj root (rumoca)
+
+- wasm
+  - pkg (WASM ouput directory, inculding wasm, js and d.ts files)
+  - src (WASM library Api which refers to functions found in rumoca project)
+  - target (binary files built by rust)
+
 ## Building
 
 ```sh
@@ -22,6 +31,30 @@ cd wasm
 ### Note:
 
 Support for browsers with vite seems to work best with the "web" target.
+
+## Packaging
+
+To build the WASM package and create an npm tarball in one step, run:
+
+```sh
+cd wasm && \
+  wasm-pack build . --release --target bundler && \
+  cd pkg && \
+  npm pack
+```
+
+You can then manually upload this `.tgz` file to your private server (e.g. via `scp` or `rsync`).
+
+> If you prefer not to use `npm pack`, you can replace the last command with `tar`:
+>
+> ```sh
+> cd wasm && \
+>   wasm-pack build . --release --target bundler && \
+>   cd pkg && \
+>   tar czf rumoca-wasm.tar.gz .
+> ```
+>
+> This creates a `rumoca-wasm-0.1.0.tar.gz` archive containing the package.
 
 ## Debug
 
