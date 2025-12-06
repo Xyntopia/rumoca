@@ -37,10 +37,7 @@ Support for browsers with vite seems to work best with the "web" target.
 To build the WASM package and create an npm tarball in one step, run:
 
 ```sh
-cd wasm && \
-  wasm-pack build . --release --target bundler && \
-  cd pkg && \
-  npm pack
+cd wasm && wasm-pack build . --release --target bundler &&  npm pack pkg
 ```
 
 You can then manually upload this `.tgz` file to your private server (e.g. via `scp` or `rsync`).
