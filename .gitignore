@@ -4,4 +4,3 @@ tests/notebooks/python/.venv/
 tests/notebooks/python/poetry.lock
 res
 .vscode/ros_path
-wasm/target
