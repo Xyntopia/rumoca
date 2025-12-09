@@ -1,0 +1,702 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Pinned nightly for edition 2024 support. Update periodically.
+  RUST_VERSION: "nightly-2025-12-06"
+
+# Prevent duplicate publish runs for same tag
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  pages: write
+
+jobs:
+  # ============================================================================
+  # Rust Testing
+  # ============================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }} --component rustfmt,clippy
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache MSL
+        uses: actions/cache@v4
+        id: msl-cache
+        with:
+          path: ~/.cache/rumoca/src
+          key: msl-v4.1.0
+
+      - name: Download MSL
+        if: steps.msl-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ~/.cache/rumoca/src
+          curl -L -o ~/.cache/rumoca/src/msl-v4.1.0.tar.gz \
+            https://github.com/modelica/ModelicaStandardLibrary/archive/refs/tags/v4.1.0.tar.gz
+          tar -xzf ~/.cache/rumoca/src/msl-v4.1.0.tar.gz -C ~/.cache/rumoca/src
+          rm ~/.cache/rumoca/src/msl-v4.1.0.tar.gz
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Build examples
+        run: cargo build --examples --verbose
+
+  modelica-fmt:
+    name: Modelica Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build and check Modelica formatting
+        run: |
+          cargo build --release --bin rumoca-fmt
+          ./target/release/rumoca-fmt --check
+
+  # ============================================================================
+  # Python Testing
+  # ============================================================================
+  python-test:
+    name: Python Test (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies and build
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install maturin pytest
+          cd bindings/python
+          maturin develop --release
+
+      - name: Test import and native bindings
+        run: |
+          source .venv/bin/activate
+          python -c "import rumoca; print(f'Version: {rumoca.__version__}'); print(f'Native: {rumoca.NATIVE_AVAILABLE}')"
+          python -c "import rumoca; assert rumoca.NATIVE_AVAILABLE, 'Native bindings not available!'"
+
+      - name: Run Python tests
+        run: |
+          source .venv/bin/activate
+          cd bindings/python
+          python -m pytest tests/ -v
+
+  # ============================================================================
+  # Documentation
+  # ============================================================================
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build documentation
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: target/doc/
+
+  # ============================================================================
+  # WebAssembly Build & GitHub Pages
+  # ============================================================================
+  build-wasm:
+    name: Build WASM
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly with rust-src
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build WASM package
+        run: |
+          # Build with only WASM features (excludes cli, lsp-server, cache, mimalloc)
+          cargo build --lib --release \
+            --target wasm32-unknown-unknown \
+            --no-default-features --features wasm
+
+          # Generate JS bindings
+          mkdir -p pkg
+          wasm-bindgen \
+            --target web \
+            --out-dir pkg \
+            --out-name rumoca \
+            target/wasm32-unknown-unknown/release/rumoca.wasm
+
+          # Copy the worker file (not generated by wasm-bindgen)
+          cp examples/wasm_editor/rumoca_worker.js pkg/
+
+          ls -lh pkg/
+
+      - name: Prepare GitHub Pages content
+        run: |
+          mkdir -p gh-pages/pkg
+
+          # Copy WASM package files
+          cp pkg/rumoca.js gh-pages/pkg/
+          cp pkg/rumoca_bg.wasm gh-pages/pkg/
+          cp pkg/rumoca_worker.js gh-pages/pkg/
+          cp pkg/index.js gh-pages/pkg/ 2>/dev/null || true
+          cp -r pkg/snippets gh-pages/pkg/ 2>/dev/null || true
+
+          # Fix wasm-bindgen-rayon's workerHelpers.js to use explicit import path
+          # (browsers can't import directories like Node.js can)
+          find gh-pages/pkg/snippets -name "workerHelpers.js" -exec \
+            sed -i "s|import('../../..')|import('../../../rumoca.js')|g" {} \;
+
+          # Copy static assets from wasm_editor
+          cp examples/wasm_editor/rumoca.png gh-pages/
+          cp examples/wasm_editor/coi-serviceworker.js gh-pages/
+
+          # Copy and modify HTML for GitHub Pages paths (only pkg path needs updating)
+          sed 's|\.\./\.\./pkg/|./pkg/|g' \
+              examples/wasm_editor/index.html > gh-pages/index.html
+
+          echo "=== GitHub Pages content ==="
+          find gh-pages -type f
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-package
+          path: pkg/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: gh-pages/
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build-wasm]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ============================================================================
+  # Release Builds (only on tags)
+  # ============================================================================
+  build-rust-binaries:
+    name: Build Rust (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, modelica-fmt]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: rumoca-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: rumoca-linux-aarch64
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: rumoca-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: rumoca-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: rumoca-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.cross
+        run: |
+          mkdir -p .cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux)
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          strip target/${{ matrix.target }}/release/rumoca
+          strip target/${{ matrix.target }}/release/rumoca-lsp
+
+      - name: Strip binary (Linux ARM64 cross)
+        if: matrix.cross
+        run: |
+          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/rumoca
+          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/rumoca-lsp
+
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          strip target/${{ matrix.target }}/release/rumoca
+          strip target/${{ matrix.target }}/release/rumoca-lsp
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ./target/${{ matrix.target }}/release/rumoca${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+      - name: Upload LSP binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}-lsp
+          path: ./target/${{ matrix.target }}/release/rumoca-lsp${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  build-python-wheels:
+    name: Build Python (${{ matrix.name }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, python-test]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            name: macos-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            name: macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Add target
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheels
+        shell: bash
+        run: |
+          cd bindings/python
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            maturin build --release --out dist
+          else
+            maturin build --release --out dist --target ${{ matrix.target }}
+          fi
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.name }}
+          path: bindings/python/dist
+
+  build-python-sdist:
+    name: Build Python sdist
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, python-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build sdist
+        run: |
+          cd bindings/python
+          maturin sdist --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: bindings/python/dist
+
+  build-vscode-extension:
+    name: Build VS Code Extension (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, build-rust-binaries]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: win32-x64
+            rust_artifact: rumoca-windows-x86_64.exe-lsp
+            binary_name: rumoca-lsp.exe
+          - target: darwin-x64
+            rust_artifact: rumoca-macos-x86_64-lsp
+            binary_name: rumoca-lsp
+          - target: darwin-arm64
+            rust_artifact: rumoca-macos-aarch64-lsp
+            binary_name: rumoca-lsp
+          - target: linux-x64
+            rust_artifact: rumoca-linux-x86_64-lsp
+            binary_name: rumoca-lsp
+          - target: linux-arm64
+            rust_artifact: rumoca-linux-aarch64-lsp
+            binary_name: rumoca-lsp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download LSP binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.rust_artifact }}
+          path: editors/vscode/bin
+
+      - name: Prepare binary
+        run: |
+          cd editors/vscode/bin
+          ls -la
+          # Rename to expected name if needed
+          if [ -f "rumoca-lsp" ] && [ "${{ matrix.binary_name }}" != "rumoca-lsp" ]; then
+            mv rumoca-lsp ${{ matrix.binary_name }}
+          elif [ -f "rumoca-lsp.exe" ] && [ "${{ matrix.binary_name }}" != "rumoca-lsp.exe" ]; then
+            mv rumoca-lsp.exe ${{ matrix.binary_name }}
+          fi
+          chmod +x ${{ matrix.binary_name }} 2>/dev/null || true
+          ls -la
+
+      - name: Install dependencies
+        run: |
+          cd editors/vscode
+          npm ci
+
+      - name: Package extension
+        run: |
+          cd editors/vscode
+          npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension-${{ matrix.target }}
+          path: editors/vscode/*.vsix
+
+  # ============================================================================
+  # Publishing (only on tags, after all builds complete)
+  # ============================================================================
+  publish:
+    name: Publish Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-rust-binaries, build-python-wheels, build-python-sdist, build-vscode-extension, build-wasm, docs]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/rumoca
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get tag name
+        id: tag
+        run: echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      # Publish to crates.io FIRST (before downloading artifacts that would pollute the working dir)
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize artifacts
+        run: |
+          mkdir -p rust-binaries python-dist vscode-ext wasm-dist
+
+          echo "=== Downloaded structure ==="
+          find artifacts -type f | head -50
+
+          # Move Rust binaries
+          for dir in artifacts/rumoca-*; do
+            if [ -d "$dir" ]; then
+              echo "Processing Rust artifact: $dir"
+              find "$dir" -type f -exec cp {} rust-binaries/ \;
+            fi
+          done
+
+          # Move Python wheels
+          for dir in artifacts/wheels-*; do
+            if [ -d "$dir" ]; then
+              echo "Processing Python artifact: $dir"
+              find "$dir" -type f \( -name "*.whl" -o -name "*.tar.gz" \) -exec cp {} python-dist/ \;
+            fi
+          done
+
+          # Move VS Code extensions (platform-specific)
+          for dir in artifacts/vscode-extension-*; do
+            if [ -d "$dir" ]; then
+              echo "Processing VS Code artifact: $dir"
+              find "$dir" -type f -name "*.vsix" -exec cp {} vscode-ext/ \;
+            fi
+          done
+
+          # Package WASM for release
+          if [ -d "artifacts/wasm-package" ]; then
+            echo "Processing WASM artifact"
+            cd artifacts/wasm-package
+            zip -r ../../wasm-dist/rumoca-wasm.zip .
+            cd ../..
+          fi
+
+          echo "=== Rust binaries ==="
+          ls -la rust-binaries/
+          echo "=== Python wheels ==="
+          ls -la python-dist/
+          echo "=== VS Code extension ==="
+          ls -la vscode-ext/
+          echo "=== WASM package ==="
+          ls -la wasm-dist/
+
+      # Create GitHub Release
+      - name: Create GitHub Release
+        run: |
+          gh release create ${{ steps.tag.outputs.name }} \
+            --title "Release ${{ steps.tag.outputs.name }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Rust binaries to release
+        run: |
+          cd rust-binaries
+          for file in *; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              gh release upload ${{ steps.tag.outputs.name }} "$file" --clobber
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Python wheels to release
+        run: |
+          cd python-dist
+          for file in *.whl *.tar.gz; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              gh release upload ${{ steps.tag.outputs.name }} "$file" --clobber
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload VS Code extension to release
+        run: |
+          cd vscode-ext
+          for file in *.vsix; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              gh release upload ${{ steps.tag.outputs.name }} "$file" --clobber
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload WASM package to release
+        run: |
+          cd wasm-dist
+          for file in *.zip; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file"
+              gh release upload ${{ steps.tag.outputs.name }} "$file" --clobber
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish to PyPI
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Publish to PyPI
+        run: |
+          pip install twine
+          twine upload python-dist/*.whl python-dist/*.tar.gz --skip-existing
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+      # Publish VS Code extension
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          cd vscode-ext
+          echo "Publishing platform-specific extensions:"
+          ls -la *.vsix
+          for vsix in *.vsix; do
+            echo "Publishing $vsix to VS Code Marketplace..."
+            npx @vscode/vsce publish --packagePath "$vsix"
+          done
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX Registry
+        run: |
+          cd vscode-ext
+          echo "Publishing platform-specific extensions:"
+          ls -la *.vsix
+          for vsix in *.vsix; do
+            echo "Publishing $vsix to Open VSX..."
+            npx ovsx publish "$vsix" -p ${{ secrets.OVSX_TOKEN }}
+          done

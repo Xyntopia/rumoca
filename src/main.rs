@@ -1,4 +1,4 @@
-//! # Rumoca Modelica Translator
+//! # Rumoca Modelica Compiler
 //!
 //! This module provides a command-line tool for parsing, flattening, and translating
 //! Modelica files into Differential Algebraic Equations (DAE) representations. It also
@@ -31,85 +31,114 @@
 //! - `env_logger`: Logging support.
 //! - `anyhow`: Error handling with context.
 //! - `rumoca`: Core library for Modelica grammar, parsing, and DAE generation.
-extern crate parol_runtime;
-use chksum_md5;
-use clap::Parser;
-use parol_runtime::{Report, log::debug};
-use rumoca::modelica_grammar::ModelicaGrammar;
-use rumoca::modelica_parser::parse;
-use rumoca::{dae, ir::create_dae::create_dae, ir::flatten::flatten};
-use std::{fs, time::Instant};
 
-use anyhow::{Context, Result};
+// Use mimalloc as the global allocator for better performance
+#[cfg(feature = "allocator")]
+use mimalloc::MiMalloc;
+
+#[cfg(feature = "allocator")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+use clap::Parser;
+use rumoca::Compiler;
+
+use anyhow::Result;
+
+/// Git version string including commit hash and build timestamp for dirty builds
+/// Format: "v0.7.18" (clean release), "v0.7.18-dirty-1234567890" (dirty with timestamp)
+///         "v0.7.18-5-g1234567" (5 commits after tag)
+const GIT_VERSION: &str = env!("RUMOCA_GIT_VERSION");
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Rumoca Modelica Translator", long_about = None)]
+#[command(version = GIT_VERSION, about = "Rumoca Modelica Compiler", long_about = None)]
 struct Args {
-    /// Template file to render to
+    /// Export to Base Modelica JSON (native, recommended)
+    #[arg(long, conflicts_with = "template_file")]
+    json: bool,
+
+    /// Template file for custom export (advanced)
     #[arg(short, long)]
     template_file: Option<String>,
+
+    /// Main model/class to simulate (required)
+    #[arg(short, long, required = true)]
+    model: String,
 
     /// Modelica file to parse
     #[arg(name = "MODELICA_FILE")]
     model_file: String,
 
+    /// Library search paths (alternative to MODELICAPATH env var)
+    /// Can be specified multiple times: -L /path1 -L /path2
+    #[arg(short = 'L', long = "lib-path")]
+    lib_paths: Vec<String>,
+
     /// Verbose output
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long)]
     verbose: bool,
 }
 
-struct ErrorReporter;
-impl Report for ErrorReporter {}
-
 fn main() -> Result<()> {
     env_logger::init();
-    debug!("env logger started");
     let args = Args::parse();
 
-    let file_name = args.model_file.clone();
-    let input = fs::read_to_string(file_name.clone())
-        .with_context(|| format!("Can't read file {}", file_name))?;
-    let model_md5 = format!("{:x}", chksum_md5::hash(&input));
+    // Use the new Compiler API
+    let mut compiler = Compiler::new().verbose(args.verbose);
 
-    let mut modelica_grammar = ModelicaGrammar::new();
-    let now = Instant::now();
+    // Set main model (required)
+    compiler = compiler.model(&args.model);
 
-    match parse(&input, &file_name, &mut modelica_grammar) {
-        Ok(_syntax_tree) => {
-            let elapsed_time = now.elapsed();
-
-            // parse tree
-            let def = modelica_grammar.modelica.expect("failed to parse");
-            if args.verbose {
-                println!("Parsing took {} milliseconds.", elapsed_time.as_millis());
-                println!("Success!\n{:#?}", def);
-            }
-
-            // flatten tree
-            let mut fclass = flatten(&def)?;
-            if args.verbose {
-                println!("{:#?}", fclass);
-            }
-
-            // create DAE
-            let mut dae = create_dae(&mut fclass)?;
-            dae.model_hash = model_md5;
-            if args.verbose {
-                println!("{:#?}", dae);
-            }
-
-            // render template
-            if args.template_file.is_some() {
-                let s = args.template_file.unwrap();
-                let template_txt = fs::read_to_string(s.clone())
-                    .with_context(|| format!("Can't read template file {}", s.clone()))?;
-                let template_md5 = chksum_md5::hash(template_txt);
-                dae.template_hash = format!("{:x}", template_md5);
-
-                dae::jinja::render_template(dae, &s)?;
-            }
-            Ok(())
-        }
-        Err(e) => ErrorReporter::report_error(&e, file_name),
+    // Set library paths if provided (overrides MODELICAPATH env var)
+    if !args.lib_paths.is_empty() {
+        let paths: Vec<&str> = args.lib_paths.iter().map(|s| s.as_str()).collect();
+        compiler = compiler.modelica_path(&paths);
     }
+
+    // Auto-include packages from MODELICAPATH
+    // Include root package from model name (e.g., "Modelica.Blocks.PID" -> "Modelica")
+    // Also include "Modelica" if not already included (for user files with MSL imports)
+    let root_package = args.model.split('.').next().unwrap_or("");
+
+    if !root_package.is_empty() {
+        match compiler.clone().include_from_modelica_path(root_package) {
+            Ok(c) => compiler = c,
+            Err(e) => {
+                eprintln!(
+                    "warning: could not load package '{}' from MODELICAPATH: {}",
+                    root_package,
+                    e.to_string().lines().next().unwrap_or("")
+                );
+            }
+        }
+    }
+
+    // If model doesn't start with "Modelica", also try loading MSL for imports
+    if root_package != "Modelica" {
+        match compiler.clone().include_from_modelica_path("Modelica") {
+            Ok(c) => compiler = c,
+            Err(e) => {
+                if args.verbose {
+                    eprintln!(
+                        "note: Modelica Standard Library not found in MODELICAPATH: {}",
+                        e.to_string().lines().next().unwrap_or("")
+                    );
+                }
+            }
+        }
+    }
+
+    let mut result = compiler.compile_file(&args.model_file)?;
+
+    // Export using native JSON or template
+    if args.json {
+        // Native JSON export (recommended)
+        let json = result.dae.to_dae_ir_json()?;
+        println!("{}", json);
+    } else if let Some(template_file) = args.template_file {
+        // Template-based export (advanced)
+        result.render_template(&template_file)?;
+    }
+
+    Ok(())
 }

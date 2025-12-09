@@ -1,201 +1,451 @@
-# rumoca [<img src="https://github.com/jgoppert/rumoca/actions/workflows/rust.yml/badge.svg">](https://github.com/CogniPilot/rumoca/actions) [<img src="https://img.shields.io/crates/v/rumoca">](https://crates.io/crates/rumoca)
+# Rumoca
 
-A Modelica translator with focus on CasADi, Sympy, JAX, and PyCollimator generation.
+<img src="editors/icons/rumoca.png" alt="Rumoca Logo" width="128" align="right">
 
-There are many useful libraries for hybrid systems analysis, but it is difficult to
-port models between different environments.
+[![CI](https://github.com/cognipilot/rumoca/actions/workflows/ci.yml/badge.svg)](https://github.com/cognipilot/rumoca/actions)
+[![Crates.io](https://img.shields.io/crates/v/rumoca)](https://crates.io/crates/rumoca)
+[![PyPI](https://img.shields.io/pypi/v/rumoca)](https://pypi.org/project/rumoca/)
+[![Documentation](https://docs.rs/rumoca/badge.svg)](https://docs.rs/rumoca)
+[![License](https://img.shields.io/crates/l/rumoca)](LICENSE)
 
-### **Input**: Modelica
-* [Modelica](https://modelica.org/) is a concise language for representing cyber-physical systems
-* Text based models, domain specific langauge makes it more human readable
-* Graphical model (block diagram) support via annotations
-* Exactly maps to a differential algebraic equation (DAE) as defined by the [Modelica language standard](https://specification.modelica.org/master/)
-* General langauges like python/C++ etc. allow users to create models that don't map easily to a DAE
-* Modelica is a language and therefore many tools have been developed for it 
+**[Try Rumoca in your browser!](https://cognipilot.github.io/rumoca/)** - No installation required.
 
-### **Output**: Computer Algebra System Targets
-There are many excellent tools for analysis of cyber-physical systems, and rumoca
-aims to allow you to use the best tool for the job at hand.
-* [CasADi](https://github.com/casadi/casadi):
-    * Written in C++: Interface Matlab/Python
-    * Automatic Differentiation
-    * Autonomy and Controls community
-    * Code generation: C
-* [Sympy](https://github.com/sympy/sympy):
-    * Written in Python
-    * General computer algebra system
-    * Code generation: user defined
-* [JAX](https://github.com/jax-ml/jax): 
-    * Written in Python
-    * Automatic Differentiation
-    * Machine learning community
-* [PyCollimator](https://github.com/collimator-ai/pycollimator): 
-    * Written in Python
-    * JAX based
-    * GUI for models with cloud version
-    * Model database
+A Modelica compiler written in Rust. Rumoca parses Modelica source files and exports to the [DAE IR Format](https://github.com/CogniPilot/modelica_ir) (supporting both implicit and explicit model serialization), or via user-customizable templates using [MiniJinja](https://github.com/mitsuhiko/minijinja). The DAE IR format is consumed by [Cyecca](https://github.com/cognipilot/cyecca) for model simulation, analysis, and Python library integration with CasADi, SymPy, and other backends.
 
-### Existing Modelica Compilers/ Translators
+> **Note:** Rumoca is in early development. While already usable for many practical tasks, you may encounter issues. Please [file bug reports](https://github.com/cognipilot/rumoca/issues) to help improve the compiler.
 
-Compiler and translator are often used interchangeably, but the goal of a compiler is typically 
-to generate low level machine code. The term translator is more general and refers to 
-transformation of source code to some other form. Since we are interested in generaeting
-models in various languages from a Modelica model, we call Rumoca a translator.
+## Quick Start
 
-There are several other Modelica compilers/translators in development, and I believe there are challenges
-that make it compelling to develop a new translator for generation required for this project. These are all my personal 
-opinions and should be taken with a grain of salt.
+```bash
+# Install
+cargo install rumoca
 
-* [Pymoca](https://github.com/pymoca/pymoca)
-    * Benefits
-        * Pymoca was written in Python and based on ANTLR, which is easy to use, it is a translator
-        * It has similar goasl to rumoca, hence the same. I also am a developer for Pymoca.
-        * Python is a very friendly language and easy for users to develop in
-    * Drawbacks
-        * Generation to listed output targets is difficult due to untyped AST
-        * Since it is using ANTLR source is first converted into a Parse tree, then into an AST, process is slow
-        * Python lacks strict type safety (even though type hints/ beartype exists)
-        * Python is a slow language and handling large models is problematic
+# Compile to DAE IR (JSON)
+rumoca model.mo -m MyModel --json > model.json
 
-* [Marco](https://github.com/marco-compiler/marco)
-    * Benefits
-        * Marco is a new compiler being written in C++, which is a fast language
-        * It is based on LLVM, which is robust
-        * The focus in on high performance simulation for large scale models
-    * Drawbacks
-        * Generation to listed output targets is difficult due to C++ compiler
-        * C++ is a non-memory safe language, unlike Rust
-        * C++ libraries for templating etc are more cumbersome than rust version
-        * Packaging and deployment in C++ is cumbersome
-        * License limits commercialization
+# Format Modelica files
+rumoca-fmt
 
-* [OpenModelica](https://openmodelica.org/)
-    * Benefits
-        * Mature open-source compiler that compiles the Modelica Standard Library
-        * OMEdit provides graphical and text environment to write models
-    * Drawbacks
-        * Generation to listed output targets is difficult due to Modelica compiler
-        * Compiler is written in Modelica itself which I find difficult to understand
-        * ANTLR based parsing can be slow
-        * Custom OSMC license can be prohibitive for commercialization
-        * License limits commercialization
+# Lint Modelica files
+rumoca-lint
+```
 
-## Installing
+## Installation
 
-1. First install [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
-2. Next, use Cargo to install Rumoca.
+### Rust (Compiler, Formatter, Linter)
 
 ```bash
 cargo install rumoca
 ```
 
-> [!IMPORTANT]
-> Make sure you [add your cargo binary directory to your path](https://doc.rust-lang.org/book/ch14-04-installing-binaries.html).
+### Python
 
-Type the following to test that rumoca is in your path.
-
-```bash
-$ rumoca --help
-Rumoca Modelica Translator
-
-Usage: rumoca [OPTIONS] <MODELICA_FILE>
-
-Arguments:
-  <MODELICA_FILE>  Modelica file to parse
-
-Options:
-  -t, --template-file <TEMPLATE_FILE>  Template file to render to
-  -v, --verbose                        Verbose output
-  -h, --help                           Print help
-  -V, --version                        Print version
-```
-
-## Building, Testing, and Running
-
-This package uses the standard cargo conventions for rust.
+The Python package bundles the Rust compiler, so no separate Rust installation is needed:
 
 ```bash
-cargo build
-cargo run
-cargo test
-cargo run -- tests/models/bouncing_ball.mo -t tests/templates/sympy.jinja
+pip install rumoca
 ```
 
-This package uses the standard cargo installation conventions.
-
-```bash
-cargo install --path .
-```
-
-## Example
-
-Rumoca is currently under development, but some initial results are shown below:
-
-### Modelica input file: **src/model.mo**
-```bash
-model Integrator
-    Real x; // test
-    Real y;
-equation
-    der(x) = 1.0;
-    der(y) = x;
-end Integrator;
-```
-
-### Generated CasADi output file.
-```bash
-$ rumoca -t test/templates/casadi_sx.jinja -m test/models/integrator.mo
-```
 ```python
-import casadi as ca
+import rumoca
 
-class Integrator:
+# Compile a Modelica file
+result = rumoca.compile("model.mo")
 
-    def __init__(self):
+# Get as JSON string or Python dict
+json_str = result.to_base_modelica_json()
+model_dict = result.to_base_modelica_dict()
 
-        # declare states
-        x = ca.SX.sym('x');
-        y = ca.SX.sym('y');
-
-        # declare state vector
-        self.x = ca.vertcat(
-            x,
-            y);
-        
-        # declare state derivative equations
-        der_x = 1;
-        der_y = x;
-
-        # declare state derivative vector
-        self.x_dot = ca.vertcat(
-            der_x,
-            der_y);
-        self.ode = ca.Function('ode', [self.x], [self.x_dot])
+# Compile from string
+result = rumoca.compile_source("""
+    model Test
+        Real x(start=0);
+    equation
+        der(x) = 1;
+    end Test;
+""", "Test")
 ```
 
-### Creating your own template using JINJA
+### Rust Library
 
-Output is highly customizable as the JINJA template engine is used to render the rumoca
-abstract syntax tree. You can use/modify our example templates in the test directory
-or create your own using the widely used [JINJA](https://docs.rs/minijinja/latest/minijinja/) template language.
+```toml
+[dependencies]
+rumoca = "0.7"
+```
 
-## Dependencies
+```rust
+use rumoca::Compiler;
 
-* [PAROL](https://github.com/jsinger67/parol) : Parsing, AST generation, Lexing
-* [MINIJINJA](https://github.com/mitsuhiko/minijinja) : JINJA Template Engine
-* [SERDE](https://github.com/serde-rs/serde) : AST Serialization
-* [CLAP](https://github.com/clap-rs/clap) : Command Line Argument Parser
+fn main() -> anyhow::Result<()> {
+    let result = Compiler::new()
+        .model("MyModel")
+        .compile_file("model.mo")?;
+
+    let json = result.to_dae_ir_json()?;
+    println!("{}", json);
+    Ok(())
+}
+```
+
+## Tools
+
+| Tool          | Description                                               |
+| ------------- | --------------------------------------------------------- |
+| `rumoca`      | Main compiler - parses Modelica and exports DAE IR (JSON) |
+| `rumoca-fmt`  | Code formatter for Modelica files (like `rustfmt`)        |
+| `rumoca-lint` | Linter for Modelica files (like `clippy`)                 |
+| `rumoca-lsp`  | Language Server Protocol server for editor integration    |
+
+## MSL Compatibility & Performance
+
+Rumoca is tested against the [Modelica Standard Library 4.1.0](https://github.com/modelica/ModelicaStandardLibrary).
+
+| Metric           | Result                   |
+| ---------------- | ------------------------ |
+| **Parse Rate**   | 100% (2551/2551 files)   |
+| **Compile Rate** | 92.1% (2102/2283 models) |
+
+**Benchmark** (AMD Ryzen 9 7950X, 16 cores):
+
+| Phase                    | Time   | Throughput         |
+| ------------------------ | ------ | ------------------ |
+| **Parsing**              | 0.99s  | 2,586 files/sec    |
+| **Balance Check (cold)** | 31.07s | 73.5 models/sec    |
+| **Balance Check (warm)** | 0.01s  | 263,242 models/sec |
+
+**Balance Check Results:**
+
+| Status             | Count | Percentage | Description                                      |
+| ------------------ | ----- | ---------- | ------------------------------------------------ |
+| **Balanced**       | 669   | 29.3%      | Fully determined (equations = unknowns)          |
+| **Partial**        | 1177  | 51.6%      | Under-determined by design (external connectors) |
+| **Unbalanced**     | 256   | 11.2%      | Needs further work                               |
+| **Compile Errors** | 181   | 7.9%       | Missing type/class resolution                    |
+
+_Partial models have external connector flow variables that receive equations when connected in a larger system._
+
+<details>
+<summary><strong>Detailed Compatibility Notes</strong></summary>
+
+**Language Support:**
+
+| Category      | Supported                                                                       |
+| ------------- | ------------------------------------------------------------------------------- |
+| Classes       | `model`, `class`, `block`, `connector`, `record`, `type`, `package`, `function` |
+| Equations     | Simple, connect (flow/potential), if, for, when                                 |
+| Expressions   | Binary/unary ops, function calls, if-expressions, arrays                        |
+| Type prefixes | `flow`, `discrete`, `parameter`, `constant`, `input`, `output`                  |
+| Packages      | Nested packages, `package.mo`/`package.order`, MODELICAPATH                     |
+| Imports       | Qualified, renamed, unqualified (`.*`), selective (`{a,b}`)                     |
+| Functions     | Single/multi-output, tuple equations `(a,b) = func()`                           |
+| Built-ins     | `der`, `pre`, `reinit`, `time`, trig, array functions                           |
+| Events        | `noEvent`, `smooth`, `sample`, `edge`, `change`, `initial`, `terminal`          |
+
+**Partial Support:**
+
+| Feature            | Status                                               |
+| ------------------ | ---------------------------------------------------- |
+| Algorithm sections | Parsed; assignments not yet counted in balance check |
+| Connect equations  | Flow/potential semantics; `stream` not supported     |
+| External functions | `external` recognized; no linking                    |
+| Inner/outer        | Basic resolution; nested scopes in progress          |
+| Complex type       | Record expansion; operator overloading in progress   |
+
+**Not Yet Implemented:**
+
+| Feature                    | Notes                                   |
+| -------------------------- | --------------------------------------- |
+| Stream connectors          | `inStream`, `actualStream` operators    |
+| Redeclarations             | `redeclare`, `replaceable` parsed only  |
+| Overloaded operators       | `operator` class prefix recognized only |
+| State machines             | Synchronous language elements (Ch. 17)  |
+| Expandable connectors      | Dynamic connector sizing                |
+| Overconstrained connectors | `Connections.root`, `branch`, etc.      |
+
+**What Works Well** (92% of models compile successfully):
+
+- Modelica.Thermal (97% success)
+- Modelica.Magnetic (96% success)
+- Modelica.Math (excellent coverage)
+
+**Problematic Areas:**
+
+- Modelica.Fluid (Medium type resolution)
+- Modelica.ComplexBlocks (Complex type)
+- Modelica.Electrical.Digital (algorithm sections)
+- Modelica.Mechanics.MultiBody (StateSelect, algorithm sections)
+- Modelica.Clocked (synchronous features)
+
+**Top Compile Errors** (181 models):
+
+| Count | Missing Type                |
+| ----- | --------------------------- |
+| 41    | `Complex`                   |
+| 32    | `StateSelect`               |
+| 26    | `Medium.AbsolutePressure`   |
+| 17    | `Medium.MassFlowRate`       |
+| 16    | `Medium.ThermodynamicState` |
+
+**Known Limitations** (256 unbalanced models):
+
+| Category           | Notes                                     |
+| ------------------ | ----------------------------------------- |
+| Algorithm sections | Assignments not yet counted as equations  |
+| Stream connectors  | `inStream`/`actualStream` not implemented |
+| External functions | Functions without equation bodies         |
+| Operator records   | Operator overloading not implemented      |
+
+</details>
+
+### Custom Code Generation
+
+Rumoca supports [MiniJinja](https://docs.rs/minijinja/) templates for custom code generation:
+
+```bash
+rumoca model.mo -m MyModel --template-file examples/templates/casadi.jinja > model.py
+rumoca model.mo -m MyModel --template-file examples/templates/sympy.jinja > model.py
+```
+
+Example template:
+
+```jinja
+# Generated from {{ dae.model_name }}
+{% for name, comp in dae.x | items %}
+{{ name }}: {{ comp.type_name }} (start={{ comp.start }})
+{% endfor %}
+```
+
+See [`examples/templates/`](examples/templates/) for complete examples (CasADi, SymPy, Base Modelica).
+
+## VSCode Extension
+
+Search for "Rumoca Modelica" in the VSCode Extensions marketplace, or install from the [marketplace page](https://marketplace.visualstudio.com/items?itemName=JamesGoppert.rumoca-modelica).
+
+![Rumoca VSCode Extension Demo](docs/rumoca-demo.gif)
+
+The extension includes a bundled `rumoca-lsp` language server - **no additional installation required**.
+
+**Features:**
+
+- Syntax highlighting (semantic tokens)
+- Real-time diagnostics with type checking
+- Autocomplete for keywords, built-in functions, and class members
+- Go to definition / Find references
+- Document symbols and outline
+- Code formatting
+- Hover information
+- Signature help
+- Code folding
+- Inlay hints
+- Code lens with reference counts
+- Rename symbol
+- Call hierarchy
+- Document links
+
+**Configuring Library Paths:**
+
+```json
+{
+  "rumoca.modelicaPath": ["/path/to/ModelicaStandardLibrary", "/path/to/other/library"]
+}
+```
+
+Alternatively, set the `MODELICAPATH` environment variable. See the [extension documentation](editors/vscode/README.md) for details.
+
+## WebAssembly (Browser)
+
+Rumoca compiles to WebAssembly, enabling browser-based Modelica compilation without a backend server.
+
+**Features:**
+
+- Parse and compile Modelica models in the browser
+- DAE IR (JSON) generation
+- Template rendering with MiniJinja
+- Multi-threaded compilation using Web Workers
+
+**Try the Demo:**
+
+```bash
+./tools/wasm-test.sh
+# Open http://localhost:8080/examples/wasm_editor/index.html
+```
+
+The demo provides a Monaco-based editor with:
+
+- Split-pane Modelica and Jinja2 template editing
+- Real-time template preview
+- DAE IR JSON export
+- Autocomplete for template variables (`dae.x`, `dae.u`, etc.)
+
+**Building WASM:**
+
+```bash
+# Install wasm-pack
+cargo install wasm-pack
+
+# Build WASM package (outputs to pkg/)
+wasm-pack build --target web --release
+```
+
+**Using in JavaScript:**
+
+```javascript
+import init, { compile, render_template } from './pkg/rumoca.js'
+
+await init()
+
+const modelica = `
+  model Test
+    Real x(start=0);
+  equation
+    der(x) = 1;
+  end Test;
+`
+
+// Compile to DAE IR JSON
+const result = compile(modelica, 'Test')
+console.log(result)
+
+// Render custom template
+const template = 'Model: {{ dae.model_name }}'
+const output = render_template(modelica, 'Test', template)
+console.log(output)
+```
+
+## Integration with Cyecca
+
+```bash
+rumoca model.mo -m MyModel --json > model.json
+```
+
+```python
+from cyecca.io.rumoca import import_rumoca
+
+model = import_rumoca('model.json')
+# Use model for simulation, analysis, code generation, etc.
+```
+
+## Architecture
+
+```
+Modelica Source -> Parse -> Flatten -> BLT -> DAE -> DAE IR (JSON)
+                   (AST)   (Flat)    (Match)  (DAE)
+                                                          |
+                                                       Cyecca
+                                                          |
+                                               CasADi/SymPy/JAX/etc.
+```
+
+**Structural Analysis:**
+
+- **Hopcroft-Karp matching** (O(E√V)) for equation-variable assignment
+- **Tarjan's SCC algorithm** for topological ordering and algebraic loop detection
+- **Pantelides algorithm** for DAE index reduction (detects high-index systems)
+- **Tearing** for algebraic loops (reduces nonlinear system size)
+
+## Development
+
+```bash
+cargo build --release   # Build
+cargo test              # Run tests
+cargo fmt --check       # Check Rust formatting
+cargo clippy            # Lint Rust code
+rumoca-fmt --check      # Check Modelica formatting
+rumoca-lint             # Lint Modelica files
+```
+
+<details>
+<summary><strong>Formatter & Linter Configuration</strong></summary>
+
+**Formatter:**
+
+```bash
+rumoca-fmt                              # Format all .mo files
+rumoca-fmt --check                      # Check formatting (CI mode)
+rumoca-fmt model.mo                     # Format specific files
+rumoca-fmt --config indent_size=4       # Custom indentation
+```
+
+Configuration (`.rumoca_fmt.toml`):
+
+```toml
+indent_size = 2
+use_tabs = false
+max_line_length = 100
+blank_lines_between_classes = 1
+```
+
+**Linter:**
+
+```bash
+rumoca-lint                     # Lint all .mo files
+rumoca-lint --level warning     # Show only warnings and errors
+rumoca-lint --format json       # JSON output for CI
+rumoca-lint --list-rules        # List available rules
+rumoca-lint --deny-warnings     # Exit with error on warnings
+```
+
+Available Rules:
+
+| Rule                    | Level   | Description                                  |
+| ----------------------- | ------- | -------------------------------------------- |
+| `naming-convention`     | note    | CamelCase for types, camelCase for variables |
+| `missing-documentation` | note    | Classes without documentation strings        |
+| `unused-variable`       | warning | Declared but unused variables                |
+| `undefined-reference`   | error   | References to undefined variables            |
+| `parameter-no-default`  | help    | Parameters without default values            |
+| `empty-section`         | note    | Empty equation or algorithm sections         |
+| `magic-number`          | help    | Magic numbers that should be constants       |
+| `complex-expression`    | note    | Overly complex/deeply nested expressions     |
+| `inconsistent-units`    | warning | Potential unit inconsistencies               |
+| `redundant-extends`     | warning | Duplicate or circular extends                |
+
+Configuration (`.rumoca_lint.toml`):
+
+```toml
+min_level = "warning"
+disabled_rules = ["magic-number", "missing-documentation"]
+deny_warnings = false
+```
+
+</details>
+
+### Caching
+
+Rumoca uses multi-level caching: in-memory caches for session-level performance (parsed classes, resolved definitions), and a persistent disk cache (`~/.cache/rumoca/dae/`) that works like `ccache` for CI pipelines. The disk cache is invalidated when source files or the compiler version change.
 
 ## Roadmap
 
-### DONE
-1. Flat subset of full Modelica Grammar using PAROL
-2. Generation using JINJA for Sympy/CasADi/Gazebo
-3. Command line interface using CLAP
+**Export Targets:**
 
-### TODO
-1. Add more language features (non-flat models, equations, statements)
-2. Improve generators
-3. Import multiple files
-4. Flatten object oriented models 
-5. Add support for JAX, PyCollimator
+- [eFMI/GALEC](https://www.efmi-standard.org/)
+
+**Import Targets:**
+
+- [Base Modelica (MCP-0031)](https://github.com/modelica/ModelicaSpecification/blob/MCP/0031/RationaleMCP/0031/ReadMe.md) - interface with OpenModelica, Dymola, etc.
+
+## Contributing
+
+Contributions welcome! All contributions must be made under the Apache-2.0 license.
+
+## License
+
+Apache-2.0 ([LICENSE](LICENSE))
+
+## Citation
+
+```bibtex
+@inproceedings{condie2025rumoca,
+  title={Rumoca: Towards a Translator from Modelica to Algebraic Modeling Languages},
+  author={Condie, Micah and Woodbury, Abigaile and Goppert, James and Andersson, Joel},
+  booktitle={Modelica Conferences},
+  pages={1009--1016},
+  year={2025}
+}
+```
+
+## See Also
+
+- [Modelica IR](https://github.com/CogniPilot/modelica_ir) - DAE IR specification
+- [Cyecca](https://github.com/cognipilot/cyecca) - Model simulation, analysis, and code generation
+- [Modelica Language](https://www.modelica.org/)

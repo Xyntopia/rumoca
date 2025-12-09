@@ -16,7 +16,7 @@ pub fn warn(msg: &str) {
     eprintln!("{:?}", msg);
 }
 
-pub fn render_template(dae: Dae, template_file: &str) -> Result<()> {
+pub fn render_template(dae: &Dae, template_file: &str) -> Result<()> {
     let template_txt = fs::read_to_string(template_file)
         .with_context(|| format!("Can't read file {}", template_file))?;
     // Reuse the underlying string-based renderer
@@ -33,5 +33,19 @@ pub fn render_template_from_str(dae: Dae, template_txt: &str) -> Result<String> 
     env.add_template("template", template_txt)?;
     let tmpl = env.get_template("template")?;
     let txt = tmpl.render(context!(dae => dae))?;
+    Ok(txt)
+}
+
+/// Render a template from a string directly (for WASM/editor use).
+/// Returns the rendered output as a string.
+pub fn render_template_str(dae: &Dae, template_str: &str) -> Result<String> {
+    let mut env = Environment::new();
+    env.add_function("panic", panic);
+    env.add_function("warn", warn);
+    env.add_template("template", template_str)?;
+    let tmpl = env.get_template("template")?;
+    let txt = tmpl
+        .render(context!(dae => dae))
+        .with_context(|| "Template rendering failed")?;
     Ok(txt)
 }

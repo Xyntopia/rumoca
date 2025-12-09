@@ -1,0 +1,162 @@
+{
+  "name": "rumoca-modelica",
+  "displayName": "Rumoca Modelica",
+  "description": "Modelica language support powered by rumoca-lsp",
+  "version": "0.7.22",
+  "publisher": "JamesGoppert",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cognipilot/rumoca"
+  },
+  "homepage": "https://github.com/cognipilot/rumoca#readme",
+  "bugs": {
+    "url": "https://github.com/cognipilot/rumoca/issues"
+  },
+  "license": "Apache-2.0",
+  "icon": "icons/rumoca.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Notebooks"
+  ],
+  "keywords": [
+    "modelica",
+    "simulation",
+    "dae",
+    "modeling",
+    "jupyter",
+    "notebook"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onNotebook:jupyter-notebook"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "modelica",
+        "aliases": [
+          "Modelica",
+          "modelica"
+        ],
+        "extensions": [
+          ".mo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "modelica",
+        "scopeName": "source.modelica",
+        "path": "./syntaxes/modelica.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.modelica": "modelica"
+        }
+      },
+      {
+        "scopeName": "source.modelica.injection",
+        "path": "./syntaxes/modelica-injection.tmLanguage.json",
+        "injectTo": ["source.python"],
+        "embeddedLanguages": {
+          "meta.embedded.block.modelica": "modelica"
+        }
+      }
+    ],
+    "notebookRenderer": [],
+    "configuration": {
+      "type": "object",
+      "title": "Rumoca Modelica",
+      "properties": {
+        "rumoca.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the rumoca-lsp executable. If empty, will search in PATH."
+        },
+        "rumoca.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        },
+        "rumoca.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging for the extension and language server."
+        },
+        "rumoca.useSystemServer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use system-installed rumoca-lsp instead of the bundled binary. Enable this if you want to use a custom build or a different version."
+        },
+        "rumoca.modelicaPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of directories containing Modelica libraries (e.g., path to ModelicaStandardLibrary). These are added to MODELICAPATH for import resolution."
+        },
+        "rumoca.collapseAnnotations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse single-line annotation contents by default, showing 'annotation(...)' instead of the full content. Click on the annotation to expand."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "rumoca.toggleAnnotation",
+        "title": "Toggle Annotation Expansion",
+        "category": "Rumoca"
+      },
+      {
+        "command": "rumoca.expandAllAnnotations",
+        "title": "Expand All Annotations",
+        "category": "Rumoca"
+      },
+      {
+        "command": "rumoca.collapseAllAnnotations",
+        "title": "Collapse All Annotations",
+        "category": "Rumoca"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "rumoca.toggleAnnotation",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "editorTextFocus && editorLangId == modelica"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild": "npm run esbuild-base -- --sourcemap",
+    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "npm run esbuild-base -- --minify && npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vscode/vsce": "^2.15.0",
+    "esbuild": "^0.27.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.0.0"
+  }
+}
