@@ -5,34 +5,37 @@ which enables it to be used in the browser without any other dependencies.
 
 ## Building
 
+### npm based workflow
+
+This workflow builds the rumoca wasm target and
+pack it into an npm package which can be used
+together with bundlers and is published to npm.
+
+```sh
+# building a package
+cd wasm && npm run build
+
+# publish package to npm
+cd wasm && npm run publish
+```
+
+### rust based workflow for pure WASM
+
 ```sh
 # build the wasm
 # For web (native ESM in browsers):
-    wasm-pack build . --release --target web
+    wasm-pack build . --release --target web --no-default-features --features wasm
 # For bundlers:
-    wasm-pack build . --release --target bundler
+    wasm-pack build . --release --target bundler --no-default-features --features wasm
 # For Node.js:
-    wasm-pack build . --release --target nodejs
+    wasm-pack build . --release --target nodejs --no-default-features --features wasm
 ```
 
-### Note:
+### Notes:
 
-Support for browsers with vite seems to work best with the "web" target.
-
-## Packaging
-
-To build the WASM package and create an npm tarball in one step, run:
-
-```sh
-wasm-pack build . --release --target web --no-default-features --features wasm && npm pack pkg
-```
-
-You can then manually upload this `.tgz` file to your private server (e.g. via `scp` or `rsync`).
-
-### Note
-
-In order to use this rumoca-wasm with the "vite" bundler, as of 2025/12, you will have to use
-the [vite-plugin-wasm](https://www.npmjs.com/package/vite-plugin-wasm) module!
+- Support for browsers with vite seems to work best with the "web" target.
+- In order to use this rumoca-wasm with the "vite" bundler, as of 2025/12, you will have to use
+  the [vite-plugin-wasm](https://www.npmjs.com/package/vite-plugin-wasm) module!
 
 ## Debug
 
