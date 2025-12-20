@@ -1,9 +1,11 @@
-# Compile rumoca to web assembly
+# Rumoca WebAssembly (WASM)
 
-Rumoca can be configured to compile to a WASM target
-which enables it to be used in the browser without any other dependencies.
+This directory contains the WebAssembly (WASM) build of Rumoca.  
+The WASM target allows Rumoca to run in the browser without additional native dependencies.
 
-TODO: update for npm-based inclusion
+> **TODO:** Document npm-based inclusion and usage (e.g., `import` from the published npm package).
+
+## Usage Example (Browser / ESM)
 
 ```javascript
 import init, { compile, render_template } from './pkg/rumoca.js'
@@ -30,41 +32,42 @@ console.log(output)
 
 ## Building
 
-### npm based workflow
+### 1. npm-based workflow (for bundlers / npm publish)
 
-This workflow builds the rumoca wasm target and
-pack it into an npm package which can be used
-together with bundlers and is published to npm.
+This workflow builds the Rumoca WASM target and packages it as an npm module that can be used with bundlers and published to npm.
 
 ```sh
-# building a package
+# Build the npm package
 cd wasm && npm run build
 
-# publish package to npm
+# Publish the package to npm
 cd wasm && npm run publish
 ```
 
-### rust based workflow for pure WASM
+### 2. Rust-based workflow (pure WASM via `wasm-pack`)
+
+You can also build the WASM artifacts directly with `wasm-pack`, targeting different environments:
 
 ```sh
-# build the wasm
-# For web (native ESM in browsers):
-    wasm-pack build . --release --target web --no-default-features --features wasm
-# For bundlers:
-    wasm-pack build . --release --target bundler --no-default-features --features wasm
-# For Node.js:
-    wasm-pack build . --release --target nodejs --no-default-features --features wasm
+# For the web (native ESM in browsers)
+wasm-pack build . --release --target web --no-default-features --features wasm
+
+# For bundlers (e.g., webpack, Rollup, Vite in bundler mode)
+wasm-pack build . --release --target bundler --no-default-features --features wasm
+
+# For Node.js
+wasm-pack build . --release --target nodejs --no-default-features --features wasm
 ```
 
-### Notes:
+## Notes
 
-- Support for browsers with vite seems to work best with the "web" target.
-- In order to use this rumoca-wasm with the "vite" bundler, as of 2025/12, you will have to use
-  the [vite-plugin-wasm](https://www.npmjs.com/package/vite-plugin-wasm) module!
+- For browser usage with Vite, the `web` target generally works best.
+- To use `rumoca-wasm` with the Vite bundler (as of December 2025), you must use the  
+  [`vite-plugin-wasm`](https://www.npmjs.com/package/vite-plugin-wasm) plugin.
 
-## Debug
+## Debug Build
 
-We can debug rumoca on the browser by building it the following way :
+To debug Rumoca in the browser, build a development WASM bundle:
 
 ```sh
 wasm-pack build . --dev --target web --no-default-features --features wasm
