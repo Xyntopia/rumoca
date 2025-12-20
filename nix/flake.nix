@@ -7,15 +7,22 @@
     # for faster dev env setup times
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
     flake-utils.url = "github:numtide/flake-utils";
+
+    # project root (not a flake!)
+    src = {
+      url = "path:..";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        # Read the file relative to the flake's root
-        overrides = (builtins.fromTOML
-          (builtins.readFile (self + "/rust-toolchain.toml")));
+
+        # Read rust-toolchain.toml from the *project root*
+        overrides =
+          builtins.fromTOML (builtins.readFile (src + "/rust-toolchain.toml"));
       in {
         devShells.default = pkgs.mkShell rec {
           nativeBuildInputs = [ pkgs.pkg-config ];
