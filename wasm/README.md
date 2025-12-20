@@ -3,6 +3,31 @@
 Rumoca can be configured to compile to a WASM target
 which enables it to be used in the browser without any other dependencies.
 
+TODO: update for npm-based inclusion
+
+```javascript
+import init, { compile, render_template } from './pkg/rumoca.js'
+
+await init()
+
+const modelica = `
+  model Test
+    Real x(start=0);
+  equation
+    der(x) = 1;
+  end Test;
+`
+
+// Compile to DAE IR JSON
+const result = compile(modelica, 'Test')
+console.log(result)
+
+// Render custom template
+const template = 'Model: {{ dae.model_name }}'
+const output = render_template(modelica, 'Test', template)
+console.log(output)
+```
+
 ## Building
 
 ### npm based workflow
