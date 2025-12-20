@@ -26,7 +26,12 @@
       in {
         devShells.default = pkgs.mkShell rec {
           nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = with pkgs; [ clang llvmPackages.bintools rustup ];
+          buildInputs = with pkgs; [
+            clang
+            llvmPackages.bintools
+            rustup
+            nodejs_22
+          ];
 
           RUSTC_VERSION = overrides.toolchain.channel;
 
