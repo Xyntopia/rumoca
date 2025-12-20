@@ -23,6 +23,15 @@
         # Read rust-toolchain.toml from the *project root*
         overrides =
           builtins.fromTOML (builtins.readFile (src + "/rust-toolchain.toml"));
+
+        # Nix-only native libs that should be added to -L for *native* builds.
+        # If you don't have any yet, leave this list empty.
+        nativeLibs = [
+          # e.g. pkgs.libvmi
+        ];
+
+        nativeLibFlags =
+          builtins.concatStringsSep " " (map (a: "-L ${a}/lib") nativeLibs);
       in {
         devShells.default = pkgs.mkShell rec {
           nativeBuildInputs = [ pkgs.pkg-config ];
@@ -31,6 +40,7 @@
             llvmPackages.bintools
             rustup
             nodejs_22
+            # plus any runtime libs, e.g. libvmi, etc.
           ];
 
           RUSTC_VERSION = overrides.toolchain.channel;
@@ -42,12 +52,22 @@
           shellHook = ''
             export PATH=$PATH:''${CARGO_HOME:-~/.cargo}/bin
             export PATH=$PATH:''${RUSTUP_HOME:-~/.rustup}/toolchains/$RUSTC_VERSION-x86_64-unknown-linux-gnu/bin/
+
+            # detect host triple (assumes rustc is available)
+            host_target="$(${"RUSTC:-rustc"} -Vv | sed -n 's/^host: //p')"
+
+            case "$host_target" in
+              x86_64-unknown-linux-gnu)
+                export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="''${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS} ${nativeLibFlags}"
+                ;;
+              aarch64-unknown-linux-gnu)
+                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="''${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS} ${nativeLibFlags}"
+                ;;
+            esac
           '';
 
-          # Add precompiled library to rustc search path
-          RUSTFLAGS = (builtins.map (a: "-L ${a}/lib") [
-            # add libraries here (e.g. pkgs.libvmi)
-          ]);
+          # NOTE: no global RUSTFLAGS here; .cargo/config.toml remains in control
+          # for wasm32-unknown-unknown (atomics, bulk-memory, etc.)
 
           LD_LIBRARY_PATH =
             pkgs.lib.makeLibraryPath (buildInputs ++ nativeBuildInputs);
