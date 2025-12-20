@@ -26,7 +26,7 @@ pub fn render_template(dae: &Dae, template_file: &str) -> Result<()> {
 }
 
 // New: string-based renderer for WASM and in-memory use
-pub fn render_template_from_str(dae: Dae, template_txt: &str) -> Result<String> {
+pub fn render_template_from_str(dae: &Dae, template_txt: &str) -> Result<String> {
     let mut env = Environment::new();
     env.add_function("panic", panic);
     env.add_function("warn", warn);
