@@ -29,8 +29,12 @@ use crate::ir::ast::{ClassDefinition, Component, Import, Location, StoredDefinit
 ///
 /// This is a simplified view of a symbol that doesn't require owning the AST.
 /// Used by `SymbolLookup` trait to provide cross-file symbol information.
+///
+/// Note: This is distinct from `SymbolInfo` trait in `ir::analysis::symbol_trait`
+/// which is for type analysis. This struct is specifically for workspace/cross-file
+/// symbol discovery.
 #[derive(Debug, Clone)]
-pub struct SymbolInfo {
+pub struct ExternalSymbol {
     /// Fully qualified name (e.g., "MyPackage.SubPackage.MyModel")
     pub qualified_name: String,
     /// File path or URI string
@@ -68,7 +72,7 @@ pub enum SymbolCategory {
 /// The LSP's `WorkspaceState` implements this trait.
 pub trait SymbolLookup {
     /// Look up a symbol by its qualified name.
-    fn lookup_symbol(&self, name: &str) -> Option<SymbolInfo>;
+    fn lookup_symbol(&self, name: &str) -> Option<ExternalSymbol>;
 
     /// Get the parsed AST for a symbol's containing file.
     ///
@@ -90,7 +94,7 @@ pub enum ResolvedSymbol<'a> {
     /// A class definition
     Class(&'a ClassDefinition),
     /// A symbol resolved from cross-file workspace lookup
-    External(SymbolInfo),
+    External(ExternalSymbol),
 }
 
 /// Scope resolver for querying the AST at specific positions.
@@ -554,8 +558,9 @@ impl<'a, L: SymbolLookup + ?Sized> ScopeResolver<'a, L> {
 /// The class definition if found, or None.
 ///
 /// # Example
-/// ```ignore
-/// // Find "Modelica.Blocks.Continuous.PID" in an AST with "within Modelica.Blocks.Continuous"
+///
+/// To find "Modelica.Blocks.Continuous.PID" in an AST with `within Modelica.Blocks.Continuous`:
+/// ```text
 /// let class = find_class_in_ast(&ast, "Modelica.Blocks.Continuous.PID");
 /// ```
 pub fn find_class_in_ast<'a>(
@@ -670,13 +675,16 @@ pub fn resolve_type_candidates(current_qualified: &str, type_name: &str) -> Vec<
 /// the import declarations in a class.
 ///
 /// # Example
-/// ```ignore
-/// // Given: import Modelica.Blocks.Continuous.PID;
-/// //        import SI = Modelica.Units.SI;
-/// let resolver = ImportResolver::from_imports(&class.imports);
-/// assert_eq!(resolver.resolve("PID"), Some("Modelica.Blocks.Continuous.PID"));
-/// assert_eq!(resolver.resolve("SI"), Some("Modelica.Units.SI"));
+///
+/// Given the following imports:
+/// ```text
+/// import Modelica.Blocks.Continuous.PID;
+/// import SI = Modelica.Units.SI;
 /// ```
+///
+/// The resolver maps aliases to their fully qualified paths:
+/// - `"PID"` → `"Modelica.Blocks.Continuous.PID"`
+/// - `"SI"` → `"Modelica.Units.SI"`
 #[derive(Debug, Default)]
 pub struct ImportResolver {
     /// Maps alias name -> fully qualified path
@@ -732,11 +740,6 @@ impl ImportResolver {
     /// Get all aliases as an iterator.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
         self.aliases.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    }
-
-    /// Get the underlying hashmap (for compatibility with existing code).
-    pub fn as_map(&self) -> &HashMap<String, String> {
-        &self.aliases
     }
 }
 

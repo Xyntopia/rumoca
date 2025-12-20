@@ -23,19 +23,18 @@ use rayon::prelude::*;
 
 use crate::compiler::extract_parse_error;
 use crate::dae::balance::{BalanceResult, BalanceStatus};
+use crate::ir::analysis::reference_checker::check_class_references;
+use crate::ir::analysis::symbol_table::SymbolTable;
 use crate::ir::analysis::symbols::{DefinedSymbol, is_class_instance_type};
-use crate::ir::ast::{Causality, ClassDefinition, ClassType};
-use crate::ir::transform::constants::global_builtins;
+use crate::ir::analysis::type_inference::type_from_name;
+use crate::ir::ast::{Causality, ClassDefinition, ClassType, Variability};
 use crate::ir::transform::scope_resolver::collect_inherited_components;
 
 use crate::lsp::WorkspaceState;
 
 use crate::ir::analysis::type_checker;
 use helpers::create_diagnostic;
-use symbols::{
-    collect_equation_symbols, collect_statement_symbols, collect_used_symbols,
-    type_errors_to_diagnostics,
-};
+use symbols::type_errors_to_diagnostics;
 
 /// Compute diagnostics for a document
 pub fn compute_diagnostics(
@@ -87,12 +86,22 @@ fn analyze_class(
     peer_classes: &IndexMap<String, ClassDefinition>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    // Build set of defined symbols
-    let mut defined: HashMap<String, DefinedSymbol> = HashMap::new();
-    let mut used: HashSet<String> = HashSet::new();
+    // Use parent_scope for top-level, will be passed in for nested classes
+    analyze_class_with_scope(class, peer_classes, diagnostics, &SymbolTable::new());
+}
 
-    // Add global builtins
-    let globals: HashSet<String> = global_builtins().into_iter().collect();
+/// Analyze a class with a parent scope for nested class support
+fn analyze_class_with_scope(
+    class: &ClassDefinition,
+    peer_classes: &IndexMap<String, ClassDefinition>,
+    diagnostics: &mut Vec<Diagnostic>,
+    parent_scope: &SymbolTable,
+) {
+    // Build set of defined symbols (for location info in diagnostics)
+    let mut defined: HashMap<String, DefinedSymbol> = HashMap::new();
+
+    // Clone parent scope to build current scope (includes builtins from SymbolTable::new())
+    let mut scope = parent_scope.clone();
 
     // Add peer functions from the same file (top-level functions)
     for (peer_name, peer_class) in peer_classes {
@@ -102,32 +111,45 @@ fn analyze_class(
                 .components
                 .values()
                 .find(|c| matches!(c.causality, Causality::Output(_)))
-                .map(|output| (output.type_name.to_string(), output.shape.clone()));
+                .map(|output| {
+                    (
+                        type_from_name(&output.type_name.to_string()),
+                        output.shape.clone(),
+                    )
+                });
 
             defined.insert(
                 peer_name.clone(),
                 DefinedSymbol {
+                    name: peer_name.clone(),
                     line: peer_class.name.location.start_line,
                     col: peer_class.name.location.start_column,
                     is_parameter: false,
                     is_constant: false,
                     is_class: true,
                     has_default: true,
-                    type_name: peer_name.clone(),
+                    declared_type: type_from_name(peer_name),
                     shape: vec![],
                     function_return,
                 },
             );
+            // Also add to scope for nested class resolution
+            scope.add_global(peer_name);
         }
     }
 
     // Collect component declarations
-    for (comp_name, comp) in &class.components {
+    for (comp_name, comp) in class.iter_components() {
         let (name, symbol) = DefinedSymbol::from_component(comp_name, comp);
-        defined.insert(name, symbol);
-
-        // Check references in start expression
-        collect_used_symbols(&comp.start, &mut used);
+        defined.insert(name.clone(), symbol);
+        // Add to scope using SymbolTable
+        let is_parameter = matches!(comp.variability, Variability::Parameter(_));
+        scope.add_symbol(
+            comp_name,
+            comp_name,
+            &comp.type_name.to_string(),
+            is_parameter,
+        );
     }
 
     // Add inherited components from extends clauses (using canonical function)
@@ -139,45 +161,63 @@ fn analyze_class(
         if !defined.contains_key(&comp_name) {
             let (name, symbol) = DefinedSymbol::from_component(&comp_name, comp);
             inherited_names.insert(name.clone());
-            defined.insert(name, symbol);
+            defined.insert(name.clone(), symbol);
+            // Add to scope
+            let is_parameter = matches!(comp.variability, Variability::Parameter(_));
+            scope.add_symbol(
+                &comp_name,
+                &comp_name,
+                &comp.type_name.to_string(),
+                is_parameter,
+            );
         }
     }
 
     // Add nested class names as defined (these are types, not variables)
     // For functions, extract the return type from output components
-    for (nested_name, nested_class) in &class.classes {
+    for (nested_name, nested_class) in class.iter_classes() {
         let (name, symbol) = DefinedSymbol::from_class(nested_name, nested_class);
         defined.insert(name, symbol);
+        // Add to scope as global
+        scope.add_global(nested_name);
     }
 
-    // Collect symbols used in equations and run type checking
+    // Use unified reference checker for undefined variable detection
+    let ref_result = check_class_references(class, &defined, &scope);
+
+    // Convert reference errors to diagnostics
+    for error in &ref_result.errors {
+        diagnostics.push(create_diagnostic(
+            error.line,
+            error.col,
+            error.message.clone(),
+            DiagnosticSeverity::ERROR,
+        ));
+    }
+
+    // Run type checking on equations
     for eq in &class.equations {
-        collect_equation_symbols(eq, &mut used, diagnostics, &defined, &globals);
-        // Type check the equation using the shared type checker
         let type_result = type_checker::check_equation(eq, &defined);
         diagnostics.extend(type_errors_to_diagnostics(&type_result));
     }
 
-    // Collect symbols used in initial equations and run type checking
+    // Run type checking on initial equations
     for eq in &class.initial_equations {
-        collect_equation_symbols(eq, &mut used, diagnostics, &defined, &globals);
         let type_result = type_checker::check_equation(eq, &defined);
         diagnostics.extend(type_errors_to_diagnostics(&type_result));
     }
 
-    // Collect symbols used in algorithms and run type checking
+    // Run type checking on algorithms
     for algo in &class.algorithms {
         for stmt in algo {
-            collect_statement_symbols(stmt, &mut used, diagnostics, &defined, &globals);
             let type_result = type_checker::check_statement(stmt, &defined);
             diagnostics.extend(type_errors_to_diagnostics(&type_result));
         }
     }
 
-    // Collect symbols used in initial algorithms and run type checking
+    // Run type checking on initial algorithms
     for algo in &class.initial_algorithms {
         for stmt in algo {
-            collect_statement_symbols(stmt, &mut used, diagnostics, &defined, &globals);
             let type_result = type_checker::check_statement(stmt, &defined);
             diagnostics.extend(type_errors_to_diagnostics(&type_result));
         }
@@ -188,13 +228,14 @@ fn analyze_class(
     // or will be used when the partial class is extended
     if !class.partial && !matches!(class.class_type, ClassType::Record | ClassType::Connector) {
         for (name, sym) in &defined {
-            if !used.contains(name) && !name.starts_with('_') {
-                // Skip parameters, classes, class instances (submodels), and inherited components
+            if !ref_result.used_symbols.contains(name) && !name.starts_with('_') {
+                // Skip parameters, constants, classes, class instances (submodels), and inherited components
                 // - Class instances contribute to the system even without explicit references
                 // - Inherited components are used in their base class's equations
                 if !sym.is_parameter
+                    && !sym.is_constant
                     && !sym.is_class
-                    && !is_class_instance_type(&sym.type_name)
+                    && !is_class_instance_type(&sym.type_name())
                     && !inherited_names.contains(name)
                 {
                     diagnostics.push(create_diagnostic(
@@ -223,9 +264,9 @@ fn analyze_class(
         }
     }
 
-    // Recursively analyze nested classes
+    // Recursively analyze nested classes, passing current scope
     for nested_class in class.classes.values() {
-        analyze_class(nested_class, peer_classes, diagnostics);
+        analyze_class_with_scope(nested_class, peer_classes, diagnostics, &scope);
     }
 }
 
@@ -323,7 +364,7 @@ fn compile_and_analyze_classes(
                     // Get balance result from compilation
                     let mut balance = result.balance;
                     let is_connector = matches!(class_type, ClassType::Connector);
-                    if (*is_partial || is_connector) && !balance.is_balanced {
+                    if (*is_partial || is_connector) && !balance.is_balanced() {
                         balance.status = BalanceStatus::Partial;
                     }
 
@@ -357,7 +398,7 @@ fn collect_balance_classes(
     ));
 
     // Recursively collect nested classes
-    for (nested_name, nested_class) in &class.classes {
+    for (nested_name, nested_class) in class.iter_classes() {
         let nested_path = format!("{}.{}", class_path, nested_name);
         collect_balance_classes(nested_class, &nested_path, result);
     }

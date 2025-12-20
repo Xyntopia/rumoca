@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rumoca"
-version = "0.7.22"
+version = "0.7.25"
 description = "Python interface for the Rumoca Modelica compiler"
 license = {text = "Apache-2.0"}
 authors = [{name = "Rumoca Contributors"}]
@@ -27,10 +27,10 @@ classifiers = [
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/jgoppert/rumoca"
-Documentation = "https://github.com/jgoppert/rumoca/blob/main/README.md"
-Repository = "https://github.com/jgoppert/rumoca"
-Issues = "https://github.com/jgoppert/rumoca/issues"
+Homepage = "https://github.com/cognipilot/rumoca"
+Documentation = "https://github.com/cognipilot/rumoca/blob/main/README.md"
+Repository = "https://github.com/cognipilot/rumoca"
+Issues = "https://github.com/cognipilot/rumoca/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "black>=23.0", "mypy>=1.0"]
