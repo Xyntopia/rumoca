@@ -14,6 +14,7 @@ use rumoca_ir_ast::{
 };
 use rumoca_session::Session;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// Global compilation session containing both library and user documents.
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
@@ -156,13 +157,172 @@ pub fn check(source: &str) -> JsValue {
 // Compilation
 // ==========================================================================
 
+fn as_object(value: &Value) -> Option<&Map<String, Value>> {
+    value.as_object()
+}
+
+fn as_object_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
+    value.as_object_mut()
+}
+
+fn expr_var_name(expr: &Value) -> Option<String> {
+    let obj = as_object(expr)?;
+    if let Some(var_ref) = obj.get("VarRef").and_then(Value::as_object) {
+        return var_ref
+            .get("name")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+    }
+    obj.get("name")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn is_binary_sub(op: &Value) -> bool {
+    if let Some(text) = op.as_str() {
+        return text == "-" || text.eq_ignore_ascii_case("sub");
+    }
+    let Some(obj) = op.as_object() else {
+        return false;
+    };
+    if obj.contains_key("Sub") {
+        return true;
+    }
+    obj.get("token")
+        .and_then(Value::as_object)
+        .and_then(|tok| tok.get("text"))
+        .and_then(Value::as_str)
+        .is_some_and(|text| text == "-")
+}
+
+fn extract_residual_assignment_expr(residual_expr: &Value, target: &str) -> Option<Value> {
+    let binary = residual_expr
+        .as_object()
+        .and_then(|obj| obj.get("Binary"))
+        .and_then(Value::as_object)?;
+    if !binary.get("op").is_some_and(is_binary_sub) {
+        return None;
+    }
+    let lhs = binary.get("lhs")?;
+    let rhs = binary.get("rhs")?;
+    let lhs_name = expr_var_name(lhs);
+    let rhs_name = expr_var_name(rhs);
+    if lhs_name.as_deref() == Some(target) && rhs_name.as_deref() != Some(target) {
+        return Some(rhs.clone());
+    }
+    if rhs_name.as_deref() == Some(target) && lhs_name.as_deref() != Some(target) {
+        return Some(lhs.clone());
+    }
+    None
+}
+
+fn lhs_var_name(lhs: &Value) -> Option<String> {
+    if let Some(s) = lhs.as_str() {
+        return Some(s.to_string());
+    }
+    expr_var_name(lhs)
+}
+
+fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Value> {
+    let obj = native.as_object()?;
+
+    for key in ["f_z", "f_m", "f_c"] {
+        if let Some(rows) = obj.get(key).and_then(Value::as_array) {
+            for row in rows {
+                let Some(row_obj) = row.as_object() else {
+                    continue;
+                };
+                if row_obj
+                    .get("lhs")
+                    .and_then(lhs_var_name)
+                    .is_some_and(|name| name == target)
+                    && row_obj.get("rhs").is_some()
+                {
+                    return row_obj.get("rhs").cloned();
+                }
+            }
+        }
+    }
+
+    for key in ["f_x", "fx"] {
+        if let Some(rows) = obj.get(key).and_then(Value::as_array) {
+            for row in rows {
+                let Some(row_obj) = row.as_object() else {
+                    continue;
+                };
+                if let Some(expr) = row_obj.get("rhs").or_else(|| row_obj.get("residual"))
+                    && let Some(found) = extract_residual_assignment_expr(expr, target)
+                {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn augment_prepared_with_native_observables(
+    native_json: &Value,
+    prepared_json: &mut Value,
+) -> Option<usize> {
+    let native_obj = native_json.as_object()?;
+    let prepared_obj = as_object_mut(prepared_json)?;
+    let native_y = native_obj.get("y").and_then(Value::as_object)?;
+    let prepared_y = prepared_obj.get("y").and_then(Value::as_object);
+
+    let mut observables: Vec<Value> = Vec::new();
+    for (name, comp) in native_y {
+        if prepared_y.is_some_and(|m| m.contains_key(name)) {
+            continue;
+        }
+        let Some(expr) = find_observable_expr_from_native(native_json, name) else {
+            continue;
+        };
+        let mut entry = Map::new();
+        entry.insert("name".to_string(), Value::String(name.clone()));
+        entry.insert("expr".to_string(), expr);
+        if let Some(comp_obj) = comp.as_object() {
+            if let Some(start) = comp_obj.get("start") {
+                entry.insert("start".to_string(), start.clone());
+            }
+            if let Some(unit) = comp_obj
+                .get("unit")
+                .or_else(|| comp_obj.get("displayUnit"))
+                .or_else(|| comp_obj.get("display_unit"))
+            {
+                entry.insert("unit".to_string(), unit.clone());
+            }
+        }
+        observables.push(Value::Object(entry));
+    }
+
+    if observables.is_empty() {
+        return Some(0);
+    }
+    let n = observables.len();
+    prepared_obj.insert(
+        "__taskyon_observables".to_string(),
+        Value::Array(observables),
+    );
+    Some(n)
+}
+
 /// Build a rich compile response with DAE, balance info, and pretty output.
 fn build_compile_response(dae: &rumoca_session::Dae) -> Result<String, JsValue> {
+    let dae_native_json = serde_json::to_value(dae).ok();
     let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         rumoca_sim_diffsol::prepare_dae_for_template_codegen(dae, true)
     }));
     let (dae_prepared, dae_prepared_error) = match prepared {
-        Ok(Ok(prepped)) => (serde_json::to_value(prepped).ok(), None),
+        Ok(Ok(prepped)) => {
+            let mut prepared_json = serde_json::to_value(prepped).ok();
+            if let (Some(native), Some(prepared)) = (dae_native_json.as_ref(), prepared_json.as_mut())
+            {
+                let _ = augment_prepared_with_native_observables(native, prepared);
+            }
+            (prepared_json, None)
+        }
         Ok(Err(err)) => (None, Some(err.to_string())),
         Err(panic_payload) => {
             let panic_msg = if let Some(msg) = panic_payload.downcast_ref::<&str>() {
@@ -983,6 +1143,96 @@ mod tests {
                 .unwrap_or_default(),
             2
         );
+    }
+
+    #[test]
+    fn test_compile_to_json_prepared_retains_observables_from_native_orbit_model() {
+        clear_library_cache();
+        let source = r#"
+        model SatelliteOrbit2D
+          parameter Real mu = 398600.4418;
+          parameter Real r0 = 7000;
+          parameter Real v0 = sqrt(mu / r0);
+          Real rx(start = r0, fixed = true);
+          Real ry(start = 0, fixed = true);
+          Real vx(start = 0, fixed = true);
+          Real vy(start = v0, fixed = true);
+          Real inv_r;
+          Real inv_v2;
+          Real inv_h;
+          Real inv_energy;
+          Real inv_a;
+          Real inv_rv;
+          Real inv_ex;
+          Real inv_ey;
+          Real inv_ecc;
+        equation
+          der(rx) = vx;
+          der(ry) = vy;
+          inv_r = sqrt(rx * rx + ry * ry);
+          inv_v2 = vx * vx + vy * vy;
+          inv_h = rx * vy - ry * vx;
+          inv_energy = 0.5 * inv_v2 - mu / inv_r;
+          inv_a = 1 / (2 / inv_r - inv_v2 / mu);
+          inv_rv = rx * vx + ry * vy;
+          inv_ex = ((inv_v2 - mu / inv_r) * rx - inv_rv * vx) / mu;
+          inv_ey = ((inv_v2 - mu / inv_r) * ry - inv_rv * vy) / mu;
+          inv_ecc = sqrt(inv_ex * inv_ex + inv_ey * inv_ey);
+          der(vx) = -mu * rx / (inv_r ^ 3);
+          der(vy) = -mu * ry / (inv_r ^ 3);
+        end SatelliteOrbit2D;
+        "#;
+
+        let json = compile_to_json(source, "SatelliteOrbit2D")
+            .expect("compile_to_json should succeed for orbit model");
+        let result: serde_json::Value =
+            serde_json::from_str(&json).expect("compile_to_json should return valid JSON");
+
+        let native_y = result
+            .get("dae_native")
+            .and_then(|d| d.get("y"))
+            .and_then(|y| y.as_object())
+            .expect("dae_native.y should exist for orbit model");
+        assert!(
+            native_y.contains_key("inv_r"),
+            "native dae should include algebraic variable inv_r, got keys: {:?}",
+            native_y.keys().collect::<Vec<_>>()
+        );
+
+        let prepared = result
+            .get("dae_prepared")
+            .and_then(|d| d.as_object())
+            .expect("dae_prepared should exist");
+        let observables = prepared
+            .get("__taskyon_observables")
+            .and_then(|v| v.as_array())
+            .expect("dae_prepared.__taskyon_observables should exist");
+        assert!(
+            !observables.is_empty(),
+            "expected prepared dae to retain at least one observable"
+        );
+
+        let observable_names: std::collections::HashSet<String> = observables
+            .iter()
+            .filter_map(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .collect();
+        for expected in [
+            "inv_r",
+            "inv_v2",
+            "inv_h",
+            "inv_energy",
+            "inv_a",
+            "inv_rv",
+            "inv_ex",
+            "inv_ey",
+            "inv_ecc",
+        ] {
+            assert!(
+                observable_names.contains(expected),
+                "missing expected retained observable `{expected}`; got: {:?}",
+                observable_names
+            );
+        }
     }
 
     #[test]
