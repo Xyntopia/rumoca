@@ -237,11 +237,39 @@ impl CompilationResult {
         self.render_template_str(&template_content)
     }
 
+    /// Render a structurally prepared DAE using a template file.
+    ///
+    /// This runs the same template-preparation pass used by the simulation
+    /// pipeline (without solver-only artifacts), then renders against the
+    /// prepared DAE.
+    pub fn render_template_prepared(
+        &self,
+        template_path: &str,
+        scalarize: bool,
+    ) -> Result<String, CompilerError> {
+        let template_content = fs::read_to_string(template_path)
+            .map_err(|e| CompilerError::io_error(template_path, e.to_string()))?;
+
+        self.render_template_str_prepared(&template_content, scalarize)
+    }
+
     /// Render the DAE using a template string.
     pub fn render_template_str(&self, template: &str) -> Result<String, CompilerError> {
         // Use the codegen module's render function which sets up the context properly
         // with the DAE as `dae` and includes custom filters/functions
         rumoca_phase_codegen::render_template(&self.dae, template)
+            .map_err(|e| CompilerError::TemplateError(e.to_string()))
+    }
+
+    /// Render a structurally prepared DAE using a template string.
+    pub fn render_template_str_prepared(
+        &self,
+        template: &str,
+        scalarize: bool,
+    ) -> Result<String, CompilerError> {
+        let prepared = rumoca_sim_diffsol::prepare_dae_for_template_codegen(&self.dae, scalarize)
+            .map_err(|e| CompilerError::TemplateError(e.to_string()))?;
+        rumoca_phase_codegen::render_template(&prepared, template)
             .map_err(|e| CompilerError::TemplateError(e.to_string()))
     }
 
