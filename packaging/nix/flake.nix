@@ -5,12 +5,12 @@
     #nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # we are currently using 25.05 version of rustup
     # for faster dev env setup times
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
 
     # project root (not a flake!)
     src = {
-      url = "path:..";
+      url = "path:../..";
       flake = false;
     };
   };

@@ -158,6 +158,30 @@ pub fn check(source: &str) -> JsValue {
 
 /// Build a rich compile response with DAE, balance info, and pretty output.
 fn build_compile_response(dae: &rumoca_session::Dae) -> Result<String, JsValue> {
+    let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rumoca_sim_diffsol::prepare_dae_for_template_codegen(dae, true)
+    }));
+    let (dae_prepared, dae_prepared_error) = match prepared {
+        Ok(Ok(prepped)) => (serde_json::to_value(prepped).ok(), None),
+        Ok(Err(err)) => (None, Some(err.to_string())),
+        Err(panic_payload) => {
+            let panic_msg = if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                (*msg).to_string()
+            } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                msg.clone()
+            } else {
+                "unknown panic payload".to_string()
+            };
+            (
+                None,
+                Some(format!(
+                    "prepare_dae_for_template_codegen panicked: {}",
+                    panic_msg
+                )),
+            )
+        }
+    };
+
     let num_eqs = dae.num_equations();
     let balance_val = dae.balance();
     let num_unknowns = num_eqs as i64 - balance_val;
@@ -173,6 +197,8 @@ fn build_compile_response(dae: &rumoca_session::Dae) -> Result<String, JsValue> 
     let response = serde_json::json!({
         "dae": dae,
         "dae_native": dae,
+        "dae_prepared": dae_prepared,
+        "dae_prepared_error": dae_prepared_error,
         "balance": balance,
         "pretty": pretty,
     });
