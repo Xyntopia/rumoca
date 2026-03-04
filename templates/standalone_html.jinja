@@ -422,7 +422,7 @@ return [];</textarea
 
 {%- macro safe_symbol_ref(name) -%}
 {%- set id = js_ident(name) -%}
-((typeof {{ id }} !== "undefined") ? {{ id }} : __taskyonResolveSymbol("{{ name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"))
+((typeof {{ id }} !== "undefined") ? {{ id }} : __rumocaResolveSymbol("{{ name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"))
 {%- endmacro -%}
 
 {%- macro render_symbol_expr(e) -%}
@@ -614,9 +614,9 @@ return [];</textarea
 {%- endmacro -%}
 
 function Model() {
-  const __taskyonHasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const __rumocaHasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
-  function __taskyonMissingRef(name) {
+  function __rumocaMissingRef(name) {
     throw new Error("Generated residual references an unresolved symbol: " + String(name));
   }
 
@@ -694,7 +694,7 @@ function Model() {
   {%- endfor %}
   };
 
-  var __taskyonFallbackSymbols = {
+  var __rumocaFallbackSymbols = {
   {%- for (name, comp) in p_map|items %}
     "{{ name }}": {{ comp_start_or_value(comp) }}{% if not loop.last or cp_map|length > 0 or z_map|length > 0 or m_map|length > 0 or w_map|length > 0 or x_dot_alias_map|length > 0 %},{% endif %}
   {%- endfor %}
@@ -715,35 +715,35 @@ function Model() {
   {%- endfor %}
   };
 
-  function __taskyonResolveSymbol(name) {
-    if (!__taskyonFallbackSymbols || typeof __taskyonFallbackSymbols !== "object") {
-      return __taskyonMissingRef(name);
+  function __rumocaResolveSymbol(name) {
+    if (!__rumocaFallbackSymbols || typeof __rumocaFallbackSymbols !== "object") {
+      return __rumocaMissingRef(name);
     }
     const key = String(name);
-    if (__taskyonHasOwn(__taskyonFallbackSymbols, key)) return __taskyonFallbackSymbols[key];
+    if (__rumocaHasOwn(__rumocaFallbackSymbols, key)) return __rumocaFallbackSymbols[key];
 
     const keyUnderscore = key.replaceAll(".", "__");
-    if (__taskyonHasOwn(__taskyonFallbackSymbols, keyUnderscore)) {
-      return __taskyonFallbackSymbols[keyUnderscore];
+    if (__rumocaHasOwn(__rumocaFallbackSymbols, keyUnderscore)) {
+      return __rumocaFallbackSymbols[keyUnderscore];
     }
 
     const keyTail = key.includes(".") ? key.split(".").pop() : key;
-    if (keyTail && __taskyonHasOwn(__taskyonFallbackSymbols, keyTail)) {
-      return __taskyonFallbackSymbols[keyTail];
+    if (keyTail && __rumocaHasOwn(__rumocaFallbackSymbols, keyTail)) {
+      return __rumocaFallbackSymbols[keyTail];
     }
 
     const norm = (s) => String(s).replaceAll("__", ".");
-    const fallbackKeys = Object.keys(__taskyonFallbackSymbols);
+    const fallbackKeys = Object.keys(__rumocaFallbackSymbols);
 
     const exactNormalized = fallbackKeys.find((k) => norm(k) === key);
-    if (exactNormalized) return __taskyonFallbackSymbols[exactNormalized];
+    if (exactNormalized) return __rumocaFallbackSymbols[exactNormalized];
 
     const suffixMatches = fallbackKeys.filter((k) => {
       const n = norm(k);
       return key === n || key.endsWith("." + n) || n.endsWith("." + key);
     });
     if (suffixMatches.length === 1) {
-      return __taskyonFallbackSymbols[suffixMatches[0]];
+      return __rumocaFallbackSymbols[suffixMatches[0]];
     }
     if (suffixMatches.length > 1) {
       throw new Error(
@@ -753,7 +753,7 @@ function Model() {
           suffixMatches.slice(0, 6).join(", "),
       );
     }
-    return __taskyonMissingRef(name);
+    return __rumocaMissingRef(name);
   }
 
   const stateIndex = {
@@ -914,7 +914,7 @@ function Model() {
   }
 
   const abiRequired = true;
-  const abi = { id: 'taskyon.model_runtime.residual.v1', version: 1 };
+  const abi = { id: 'rumoca.model_runtime.residual.v1', version: 1 };
   const description = {
     modelName: meta.name,
     variables: []
@@ -1427,7 +1427,7 @@ function Model() {
   const contextInfo = {
     source: context?.source,
     compiledAt: context?.compiledAt,
-    runId: context?.__taskyonRunId ?? context?.runId,
+    runId: context?.__rumocaRunId ?? context?.runId,
   }
 
   return {

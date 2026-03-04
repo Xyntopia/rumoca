@@ -175,7 +175,7 @@ fn augment_prepared_with_native_observables(
     }
     let n = observables.len();
     prepared_obj.insert(
-        "__taskyon_observables".to_string(),
+        "__rumoca_observables".to_string(),
         Value::Array(observables),
     );
     Some(n)
@@ -880,7 +880,7 @@ mod tests {
             .expect("compilation should succeed");
         let rendered = result
             .render_template_str_prepared(
-                "{% for o in dae.__taskyon_observables %}{{ o.name }}\n{% endfor %}",
+                "{% for o in dae.__rumoca_observables %}{{ o.name }}\n{% endfor %}",
                 true,
             )
             .expect("prepared template render should succeed");

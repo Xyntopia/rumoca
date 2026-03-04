@@ -302,7 +302,7 @@ fn augment_prepared_with_native_observables(
     }
     let n = observables.len();
     prepared_obj.insert(
-        "__taskyon_observables".to_string(),
+        "__rumoca_observables".to_string(),
         Value::Array(observables),
     );
     Some(n)
@@ -802,11 +802,9 @@ pub fn generate_code(dae_json: &str, target: &str) -> Result<String, JsValue> {
 /// Render a Jinja template with DAE data.
 #[wasm_bindgen]
 pub fn render_template(dae_json: &str, template: &str) -> Result<String, JsValue> {
-    use rumoca_session::Dae;
-
-    let dae: Dae = serde_json::from_str(dae_json)
+    let dae_value: serde_json::Value = serde_json::from_str(dae_json)
         .map_err(|e| JsValue::from_str(&format!("Invalid DAE JSON: {}", e)))?;
-    rumoca_phase_codegen::render_template(&dae, template)
+    rumoca_phase_codegen::render_template_with_dae_json(&dae_value, template)
         .map_err(|e| JsValue::from_str(&format!("Template error: {}", e)))
 }
 
@@ -1204,9 +1202,9 @@ mod tests {
             .and_then(|d| d.as_object())
             .expect("dae_prepared should exist");
         let observables = prepared
-            .get("__taskyon_observables")
+            .get("__rumoca_observables")
             .and_then(|v| v.as_array())
-            .expect("dae_prepared.__taskyon_observables should exist");
+            .expect("dae_prepared.__rumoca_observables should exist");
         assert!(
             !observables.is_empty(),
             "expected prepared dae to retain at least one observable"
@@ -1231,6 +1229,76 @@ mod tests {
                 observable_names.contains(expected),
                 "missing expected retained observable `{expected}`; got: {:?}",
                 observable_names
+            );
+        }
+    }
+
+    #[test]
+    fn test_render_template_preserves_prepared_observables_from_json_context() {
+        clear_library_cache();
+        let source = r#"
+        model SatelliteOrbit2D
+          parameter Real mu = 398600.4418;
+          parameter Real r0 = 7000;
+          parameter Real v0 = sqrt(mu / r0);
+          Real rx(start = r0, fixed = true);
+          Real ry(start = 0, fixed = true);
+          Real vx(start = 0, fixed = true);
+          Real vy(start = v0, fixed = true);
+          Real inv_r;
+          Real inv_v2;
+          Real inv_h;
+          Real inv_energy;
+          Real inv_a;
+          Real inv_rv;
+          Real inv_ex;
+          Real inv_ey;
+          Real inv_ecc;
+        equation
+          der(rx) = vx;
+          der(ry) = vy;
+          inv_r = sqrt(rx * rx + ry * ry);
+          inv_v2 = vx * vx + vy * vy;
+          inv_h = rx * vy - ry * vx;
+          inv_energy = 0.5 * inv_v2 - mu / inv_r;
+          inv_a = 1 / (2 / inv_r - inv_v2 / mu);
+          inv_rv = rx * vx + ry * vy;
+          inv_ex = ((inv_v2 - mu / inv_r) * rx - inv_rv * vx) / mu;
+          inv_ey = ((inv_v2 - mu / inv_r) * ry - inv_rv * vy) / mu;
+          inv_ecc = sqrt(inv_ex * inv_ex + inv_ey * inv_ey);
+          der(vx) = -mu * rx / (inv_r ^ 3);
+          der(vy) = -mu * ry / (inv_r ^ 3);
+        end SatelliteOrbit2D;
+        "#;
+
+        let compiled = compile_to_json(source, "SatelliteOrbit2D")
+            .expect("compile_to_json should succeed for orbit model");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&compiled).expect("compile_to_json should return valid JSON");
+        let prepared = parsed
+            .get("dae_prepared")
+            .expect("compile response should contain dae_prepared");
+
+        let rendered = render_template(
+            &prepared.to_string(),
+            "{% for o in dae.__rumoca_observables %}{{ o.name }}\n{% endfor %}",
+        )
+        .expect("render_template should succeed with JSON context");
+
+        for expected in [
+            "inv_r",
+            "inv_v2",
+            "inv_h",
+            "inv_energy",
+            "inv_a",
+            "inv_rv",
+            "inv_ex",
+            "inv_ey",
+            "inv_ecc",
+        ] {
+            assert!(
+                rendered.lines().any(|line| line.trim() == expected),
+                "expected rendered observables to contain `{expected}`, got:\n{rendered}"
             );
         }
     }
