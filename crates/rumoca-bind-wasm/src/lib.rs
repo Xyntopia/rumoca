@@ -223,8 +223,11 @@ fn lhs_var_name(lhs: &Value) -> Option<String> {
     expr_var_name(lhs)
 }
 
-fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Value> {
-    let obj = native.as_object()?;
+fn collect_observable_expr_candidates_from_native(native: &Value, target: &str) -> Vec<Value> {
+    let Some(obj) = native.as_object() else {
+        return Vec::new();
+    };
+    let mut out: Vec<Value> = Vec::new();
 
     for key in ["f_z", "f_m", "f_c"] {
         if let Some(rows) = obj.get(key).and_then(Value::as_array) {
@@ -238,7 +241,9 @@ fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Valu
                     .is_some_and(|name| name == target)
                     && row_obj.get("rhs").is_some()
                 {
-                    return row_obj.get("rhs").cloned();
+                    if let Some(rhs) = row_obj.get("rhs").cloned() {
+                        out.push(rhs);
+                    }
                 }
             }
         }
@@ -253,13 +258,65 @@ fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Valu
                 if let Some(expr) = row_obj.get("rhs").or_else(|| row_obj.get("residual"))
                     && let Some(found) = extract_residual_assignment_expr(expr, target)
                 {
-                    return Some(found);
+                    out.push(found);
                 }
             }
         }
     }
 
-    None
+    out
+}
+
+fn expr_complexity(expr: &Value) -> usize {
+    match expr {
+        Value::Object(map) => {
+            1 + map
+                .values()
+                .map(expr_complexity)
+                .fold(0usize, |acc, n| acc.saturating_add(n))
+        }
+        Value::Array(items) => {
+            1 + items
+                .iter()
+                .map(expr_complexity)
+                .fold(0usize, |acc, n| acc.saturating_add(n))
+        }
+        _ => 1,
+    }
+}
+
+fn is_simple_alias_expr(expr: &Value) -> bool {
+    let is_var_like = |v: &Value| {
+        v.as_object()
+            .is_some_and(|m| m.contains_key("VarRef") || m.contains_key("ComponentReference"))
+    };
+    if is_var_like(expr) {
+        return true;
+    }
+    let Some(obj) = expr.as_object() else {
+        return false;
+    };
+    let Some(unary) = obj.get("Unary").and_then(Value::as_object) else {
+        return false;
+    };
+    unary
+        .get("arg")
+        .is_some_and(|arg| is_var_like(arg))
+}
+
+fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Value> {
+    let candidates = collect_observable_expr_candidates_from_native(native, target);
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.into_iter().max_by_key(|expr| {
+        let non_alias = if is_simple_alias_expr(expr) {
+            0usize
+        } else {
+            1usize
+        };
+        (non_alias, expr_complexity(expr))
+    })
 }
 
 fn component_ref_name(expr: &Value) -> Option<String> {

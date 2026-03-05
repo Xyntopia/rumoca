@@ -167,7 +167,7 @@
 
 {%- macro safe_symbol_ref(name) -%}
 {%- set id = js_ident(name) -%}
-((typeof {{ id }} !== "undefined") ? {{ id }} : __taskyonResolveSymbol("{{ name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"))
+((typeof {{ id }} !== "undefined") ? {{ id }} : __rumocaResolveSymbol("{{ name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"))
 {%- endmacro -%}
 
 {%- macro render_symbol_expr(e) -%}
@@ -363,51 +363,49 @@
 {%- endmacro -%}
 
 function Model() {
-  const __taskyonHasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const __rumocaHasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
-  function __taskyonMissingRef(name) {
+  function __rumocaMissingRef(name) {
     throw new Error("Generated residual references an unresolved symbol: " + String(name));
   }
 
-  function __taskyonFiniteOr(value, fallback = 0) {
+  function __rumocaFiniteOr(value, fallback = 0) {
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
-  var __taskyonFallbackSymbols = {};
-  var __taskyonSoftResolve = false;
+  var __rumocaFallbackSymbols = {};
 
-  function __taskyonResolveSymbol(name) {
-    if (!__taskyonFallbackSymbols || typeof __taskyonFallbackSymbols !== "object") {
-      return __taskyonMissingRef(name);
+  function __rumocaResolveSymbol(name) {
+    if (!__rumocaFallbackSymbols || typeof __rumocaFallbackSymbols !== "object") {
+      return __rumocaMissingRef(name);
     }
     const key = String(name);
-    if (__taskyonHasOwn(__taskyonFallbackSymbols, key)) return __taskyonFallbackSymbols[key];
+    if (__rumocaHasOwn(__rumocaFallbackSymbols, key)) return __rumocaFallbackSymbols[key];
 
     const keyUnderscore = key.replaceAll(".", "__");
-    if (__taskyonHasOwn(__taskyonFallbackSymbols, keyUnderscore)) {
-      return __taskyonFallbackSymbols[keyUnderscore];
+    if (__rumocaHasOwn(__rumocaFallbackSymbols, keyUnderscore)) {
+      return __rumocaFallbackSymbols[keyUnderscore];
     }
 
     const keyTail = key.includes(".") ? key.split(".").pop() : key;
-    if (keyTail && __taskyonHasOwn(__taskyonFallbackSymbols, keyTail)) {
-      return __taskyonFallbackSymbols[keyTail];
+    if (keyTail && __rumocaHasOwn(__rumocaFallbackSymbols, keyTail)) {
+      return __rumocaFallbackSymbols[keyTail];
     }
 
     const norm = (s) => String(s).replaceAll("__", ".");
-    const fallbackKeys = Object.keys(__taskyonFallbackSymbols);
+    const fallbackKeys = Object.keys(__rumocaFallbackSymbols);
 
     const exactNormalized = fallbackKeys.find((k) => norm(k) === key);
-    if (exactNormalized) return __taskyonFallbackSymbols[exactNormalized];
+    if (exactNormalized) return __rumocaFallbackSymbols[exactNormalized];
 
     const suffixMatches = fallbackKeys.filter((k) => {
       const n = norm(k);
       return key === n || key.endsWith("." + n) || n.endsWith("." + key);
     });
     if (suffixMatches.length === 1) {
-      return __taskyonFallbackSymbols[suffixMatches[0]];
+      return __rumocaFallbackSymbols[suffixMatches[0]];
     }
     if (suffixMatches.length > 1) {
-      if (__taskyonSoftResolve) return Number.NaN;
       throw new Error(
         "Ambiguous symbol resolution for " +
           key +
@@ -415,76 +413,83 @@ function Model() {
           suffixMatches.slice(0, 6).join(", "),
       );
     }
-    if (__taskyonSoftResolve) return Number.NaN;
-    return __taskyonMissingRef(name);
+    return __rumocaMissingRef(name);
   }
 
   const pDefaults = {};
   {%- for (name, comp) in p_map|items %}
+  pDefaults["{{ name }}"] = 0;
+  __rumocaFallbackSymbols["{{ name }}"] = 0;
+  {%- endfor %}
+  {%- for (name, comp) in p_map|items %}
   {
-    const __taskyonP = {{ comp_expr_or_value(comp) }};
-    pDefaults["{{ name }}"] = __taskyonFiniteOr(__taskyonP, 0);
-    __taskyonFallbackSymbols["{{ name }}"] = pDefaults["{{ name }}"];
+    const __rumocaP = {{ comp_expr_or_value(comp) }};
+    pDefaults["{{ name }}"] = __rumocaFiniteOr(__rumocaP, pDefaults["{{ name }}"]);
+    __rumocaFallbackSymbols["{{ name }}"] = pDefaults["{{ name }}"];
   }
   {%- endfor %}
 
   const constants = {};
   {%- for (name, comp) in cp_map|items %}
+  constants["{{ name }}"] = 0;
+  __rumocaFallbackSymbols["{{ name }}"] = 0;
+  {%- endfor %}
+  {%- for (name, comp) in cp_map|items %}
   {
-    const __taskyonC = {{ comp_expr_or_value(comp) }};
-    constants["{{ name }}"] = __taskyonFiniteOr(__taskyonC, 0);
-    __taskyonFallbackSymbols["{{ name }}"] = constants["{{ name }}"];
+    const __rumocaC = {{ comp_expr_or_value(comp) }};
+    constants["{{ name }}"] = __rumocaFiniteOr(__rumocaC, constants["{{ name }}"]);
+    __rumocaFallbackSymbols["{{ name }}"] = constants["{{ name }}"];
   }
   {%- endfor %}
 
   const x0 = [];
   {%- for (name, comp) in x_map|items %}
   {
-    const __taskyonX0 = {{ comp_expr_or_value(comp) }};
-    x0.push(__taskyonFiniteOr(__taskyonX0, 0));
-    __taskyonFallbackSymbols["{{ name }}"] = x0[{{ loop.index0 }}];
+    const __rumocaX0 = {{ comp_expr_or_value(comp) }};
+    x0.push(__rumocaFiniteOr(__rumocaX0, 0));
+    __rumocaFallbackSymbols["{{ name }}"] = x0[{{ loop.index0 }}];
   }
   {%- endfor %}
 
   const y0 = [];
   {%- for (name, comp) in y_map|items %}
   {
-    const __taskyonY0 = {{ comp_expr_or_value(comp) }};
-    y0.push(__taskyonFiniteOr(__taskyonY0, 0));
-    __taskyonFallbackSymbols["{{ name }}"] = y0[{{ loop.index0 }}];
+    const __rumocaY0 = {{ comp_expr_or_value(comp) }};
+    y0.push(__rumocaFiniteOr(__rumocaY0, 0));
+    __rumocaFallbackSymbols["{{ name }}"] = y0[{{ loop.index0 }}];
   }
   {%- endfor %}
   {%- for (name, comp) in z_map|items %}
   {
-    const __taskyonY0 = {{ comp_expr_or_value(comp) }};
-    y0.push(__taskyonFiniteOr(__taskyonY0, 0));
-    __taskyonFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + loop.index0 }}];
+    const __rumocaY0 = {{ comp_expr_or_value(comp) }};
+    y0.push(__rumocaFiniteOr(__rumocaY0, 0));
+    __rumocaFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + loop.index0 }}];
   }
   {%- endfor %}
   {%- for (name, comp) in m_map|items %}
   {
-    const __taskyonY0 = {{ comp_expr_or_value(comp) }};
-    y0.push(__taskyonFiniteOr(__taskyonY0, 0));
-    __taskyonFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + z_map|length + loop.index0 }}];
+    const __rumocaY0 = {{ comp_expr_or_value(comp) }};
+    y0.push(__rumocaFiniteOr(__rumocaY0, 0));
+    __rumocaFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + z_map|length + loop.index0 }}];
   }
   {%- endfor %}
   {%- for (name, comp) in w_map|items %}
   {
-    const __taskyonY0 = {{ comp_expr_or_value(comp) }};
-    y0.push(__taskyonFiniteOr(__taskyonY0, 0));
-    __taskyonFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + z_map|length + m_map|length + loop.index0 }}];
+    const __rumocaY0 = {{ comp_expr_or_value(comp) }};
+    y0.push(__rumocaFiniteOr(__rumocaY0, 0));
+    __rumocaFallbackSymbols["{{ name }}"] = y0[{{ y_map|length + z_map|length + m_map|length + loop.index0 }}];
   }
   {%- endfor %}
   {%- for (name, comp) in x_dot_alias_map|items %}
   {
-    const __taskyonAlias = {{ comp_expr_or_value(comp) }};
-    __taskyonFallbackSymbols["{{ name }}"] = __taskyonFiniteOr(__taskyonAlias, 0);
+    const __rumocaAlias = {{ comp_expr_or_value(comp) }};
+    __rumocaFallbackSymbols["{{ name }}"] = __rumocaFiniteOr(__rumocaAlias, 0);
   }
   {%- endfor %}
   {%- for obs in obs_list %}
   {
-    const __taskyonObs0 = {% if obs.start is defined %}{{ render_expr(obs.start) }}{% else %}0{% endif %};
-    __taskyonFallbackSymbols["{{ obs.name }}"] = __taskyonFiniteOr(__taskyonObs0, 0);
+    const __rumocaObs0 = {% if obs.start is defined %}{{ render_expr(obs.start) }}{% else %}0{% endif %};
+    __rumocaFallbackSymbols["{{ obs.name }}"] = __rumocaFiniteOr(__rumocaObs0, 0);
   }
   {%- endfor %}
 
@@ -529,7 +534,7 @@ function Model() {
       { name: "{{ name }}", start: y0[{{ y_map|length + z_map|length + m_map|length + loop.index0 }}]{{ comp_unit_prop(comp) }} }{% if not loop.last or obs_list|length > 0 %},{% endif %}
     {%- endfor %}
     {%- for obs in obs_list %}
-      { name: "{{ obs.name }}", start: {% if obs.start is defined %}__taskyonFiniteOr({{ render_expr(obs.start) }}, 0){% else %}0{% endif %}{% if obs.unit is defined and (obs.unit|string)|trim != '' %}, unit: "{{ obs.unit|string|replace('\\', '\\\\')|replace('"', '\\"') }}"{% endif %} }{% if not loop.last %},{% endif %}
+      { name: "{{ obs.name }}", start: {% if obs.start is defined %}__rumocaFiniteOr({{ render_expr(obs.start) }}, 0){% else %}0{% endif %}{% if obs.unit is defined and (obs.unit|string)|trim != '' %}, unit: "{{ obs.unit|string|replace('\\', '\\\\')|replace('"', '\\"') }}"{% endif %} }{% if not loop.last %},{% endif %}
     {%- endfor %}
     ],
 
@@ -671,8 +676,6 @@ function Model() {
   }
 
   function evalAlgebraics(t, xVec, yVec, uVec, pOverride) {
-    __taskyonSoftResolve = true;
-    try {
     var p = Object.assign({}, pDefaults, pOverride || {});
 
   {%- for (name, comp) in p_map|items %}
@@ -707,25 +710,25 @@ function Model() {
 
     var out = new Array(meta.algebraics.length).fill(0);
   {%- for (name, comp) in y_map|items %}
-    out[{{ loop.index0 }}] = __taskyonFiniteOr({{ js_ident(name) }}, 0);
+    out[{{ loop.index0 }}] = __rumocaFiniteOr({{ js_ident(name) }}, 0);
   {%- endfor %}
   {%- for (name, comp) in z_map|items %}
-    out[{{ y_map|length + loop.index0 }}] = __taskyonFiniteOr({{ js_ident(name) }}, 0);
+    out[{{ y_map|length + loop.index0 }}] = __rumocaFiniteOr({{ js_ident(name) }}, 0);
   {%- endfor %}
   {%- for (name, comp) in m_map|items %}
-    out[{{ y_map|length + z_map|length + loop.index0 }}] = __taskyonFiniteOr({{ js_ident(name) }}, 0);
+    out[{{ y_map|length + z_map|length + loop.index0 }}] = __rumocaFiniteOr({{ js_ident(name) }}, 0);
   {%- endfor %}
   {%- for (name, comp) in w_map|items %}
-    out[{{ y_map|length + z_map|length + m_map|length + loop.index0 }}] = __taskyonFiniteOr({{ js_ident(name) }}, 0);
+    out[{{ y_map|length + z_map|length + m_map|length + loop.index0 }}] = __rumocaFiniteOr({{ js_ident(name) }}, 0);
   {%- endfor %}
   {%- for obs in obs_list %}
-    var {{ js_ident(obs.name) }} = __taskyonFiniteOr(__taskyonResolveSymbol("{{ obs.name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"), 0);
+    var {{ js_ident(obs.name) }} = __rumocaFiniteOr(__rumocaResolveSymbol("{{ obs.name|string|replace('\\', '\\\\')|replace('"', '\\"') }}"), 0);
   {%- endfor %}
   {%- if obs_list|length > 0 %}
     for (let __rumocaObsPass = 0; __rumocaObsPass < {{ obs_list|length }}; __rumocaObsPass++) {
     {%- for obs in obs_list %}
-      {{ js_ident(obs.name) }} = __taskyonFiniteOr({{ render_expr(obs.expr) }}, 0);
-      __taskyonFallbackSymbols["{{ obs.name }}"] = {{ js_ident(obs.name) }};
+      {{ js_ident(obs.name) }} = __rumocaFiniteOr({{ render_expr(obs.expr) }}, 0);
+      __rumocaFallbackSymbols["{{ obs.name }}"] = {{ js_ident(obs.name) }};
     {%- endfor %}
     }
   {%- endif %}
@@ -733,9 +736,6 @@ function Model() {
     out[{{ y_map|length + z_map|length + m_map|length + w_map|length + loop.index0 }}] = {{ js_ident(obs.name) }};
   {%- endfor %}
     return out;
-    } finally {
-      __taskyonSoftResolve = false;
-    }
   }
 
   function applyResets(t, xVec, yVec, uVec, pOverride, cPrev, cCurr) {
@@ -796,7 +796,7 @@ function Model() {
   }
 
   const abiRequired = true;
-  const abi = { id: 'taskyon.model_runtime.residual.v1', version: 1 };
+  const abi = { id: 'rumoca.model_runtime.residual.v1', version: 1 };
   const description = {
     modelName: meta.name,
     variables: []
