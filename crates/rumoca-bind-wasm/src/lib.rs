@@ -262,6 +262,115 @@ fn find_observable_expr_from_native(native: &Value, target: &str) -> Option<Valu
     None
 }
 
+fn component_ref_name(expr: &Value) -> Option<String> {
+    let obj = expr.as_object()?;
+    let cr = obj.get("ComponentReference")?.as_object()?;
+    let parts = cr.get("parts")?.as_array()?;
+    let mut segs: Vec<String> = Vec::new();
+    for part in parts {
+        let part_obj = part.as_object()?;
+        let ident = part_obj.get("ident")?.as_object()?;
+        let text = ident.get("text")?.as_str()?;
+        segs.push(text.to_string());
+    }
+    if segs.is_empty() {
+        return None;
+    }
+    Some(segs.join("."))
+}
+
+fn collect_prepared_symbol_names(prepared_obj: &Map<String, Value>) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for key in ["p", "constants", "cp", "x", "y", "z", "m", "w", "u", "x_dot_alias"] {
+        if let Some(map) = prepared_obj.get(key).and_then(Value::as_object) {
+            out.extend(map.keys().cloned());
+        }
+    }
+    out
+}
+
+fn rewrite_observable_expr_with_native_aliases(
+    native_json: &Value,
+    expr: &Value,
+    prepared_symbols: &std::collections::HashSet<String>,
+    visiting: &mut std::collections::HashSet<String>,
+    depth: usize,
+) -> Value {
+    if depth > 24 {
+        return expr.clone();
+    }
+
+    if let Some(obj) = expr.as_object() {
+        if let Some(vr) = obj.get("VarRef").and_then(Value::as_object)
+            && let Some(name) = vr.get("name").and_then(Value::as_str)
+            && !prepared_symbols.contains(name)
+            && !visiting.contains(name)
+            && let Some(alias_expr) = find_observable_expr_from_native(native_json, name)
+        {
+            visiting.insert(name.to_string());
+            let rewritten = rewrite_observable_expr_with_native_aliases(
+                native_json,
+                &alias_expr,
+                prepared_symbols,
+                visiting,
+                depth + 1,
+            );
+            visiting.remove(name);
+            return rewritten;
+        }
+
+        if let Some(name) = component_ref_name(expr)
+            && !prepared_symbols.contains(&name)
+            && !visiting.contains(&name)
+            && let Some(alias_expr) = find_observable_expr_from_native(native_json, &name)
+        {
+            visiting.insert(name.clone());
+            let rewritten = rewrite_observable_expr_with_native_aliases(
+                native_json,
+                &alias_expr,
+                prepared_symbols,
+                visiting,
+                depth + 1,
+            );
+            visiting.remove(&name);
+            return rewritten;
+        }
+
+        let mut out = Map::new();
+        for (k, v) in obj {
+            out.insert(
+                k.clone(),
+                rewrite_observable_expr_with_native_aliases(
+                    native_json,
+                    v,
+                    prepared_symbols,
+                    visiting,
+                    depth + 1,
+                ),
+            );
+        }
+        return Value::Object(out);
+    }
+
+    if let Some(arr) = expr.as_array() {
+        return Value::Array(
+            arr.iter()
+                .map(|v| {
+                    rewrite_observable_expr_with_native_aliases(
+                        native_json,
+                        v,
+                        prepared_symbols,
+                        visiting,
+                        depth + 1,
+                    )
+                })
+                .collect(),
+        );
+    }
+
+    expr.clone()
+}
+
 fn augment_prepared_with_native_observables(
     native_json: &Value,
     prepared_json: &mut Value,
@@ -270,15 +379,24 @@ fn augment_prepared_with_native_observables(
     let prepared_obj = as_object_mut(prepared_json)?;
     let native_y = native_obj.get("y").and_then(Value::as_object)?;
     let prepared_y = prepared_obj.get("y").and_then(Value::as_object);
+    let prepared_symbols = collect_prepared_symbol_names(prepared_obj);
 
     let mut observables: Vec<Value> = Vec::new();
     for (name, comp) in native_y {
         if prepared_y.is_some_and(|m| m.contains_key(name)) {
             continue;
         }
-        let Some(expr) = find_observable_expr_from_native(native_json, name) else {
+        let Some(expr_raw) = find_observable_expr_from_native(native_json, name) else {
             continue;
         };
+        let mut visiting = std::collections::HashSet::new();
+        let expr = rewrite_observable_expr_with_native_aliases(
+            native_json,
+            &expr_raw,
+            &prepared_symbols,
+            &mut visiting,
+            0,
+        );
         let mut entry = Map::new();
         entry.insert("name".to_string(), Value::String(name.clone()));
         entry.insert("expr".to_string(), expr);

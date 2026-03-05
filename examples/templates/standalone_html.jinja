@@ -336,7 +336,7 @@ return [];</textarea
 {{ e }}
 {%- elif e is boolean -%}
 {{ "true" if e else "false" }}
-{%- elif e.Literal is defined -%}
+{%- elif e is mapping and e.Literal is defined -%}
   {%- if e.Literal.Integer is defined -%}{{ e.Literal.Integer }}
   {%- elif e.Literal.Real is defined -%}{{ e.Literal.Real }}
   {%- elif e.Literal.Bool is defined -%}{{ "true" if e.Literal.Bool else "false" }}
@@ -441,13 +441,13 @@ return [];</textarea
 {%- endmacro -%}
 
 {%- macro render_symbol_expr(e) -%}
-{%- if e.VarRef is defined and e.VarRef.name == "time" -%}
+{%- if e is mapping and e.VarRef is defined and e.VarRef.name == "time" -%}
   t
-{%- elif e.VarRef is defined -%}
+{%- elif e is mapping and e.VarRef is defined -%}
   {{- js_ident(e.VarRef.name) -}}
-{%- elif e.ComponentReference is defined and render_cref(e.ComponentReference) == "time" -%}
+{%- elif e is mapping and e.ComponentReference is defined and render_cref(e.ComponentReference) == "time" -%}
   t
-{%- elif e.ComponentReference is defined -%}
+{%- elif e is mapping and e.ComponentReference is defined -%}
   {{- js_ident(render_cref(e.ComponentReference)) -}}
 {%- else -%}
   {{- render_expr(e) -}}
@@ -461,21 +461,21 @@ return [];</textarea
   {{- e -}}
 {%- elif e is boolean -%}
   {{- "true" if e else "false" -}}
-{%- elif e.Literal is defined -%}
+{%- elif e is mapping and e.Literal is defined -%}
   {%- if e.Literal.Integer is defined -%}{{ e.Literal.Integer }}
   {%- elif e.Literal.Real is defined -%}{{ e.Literal.Real }}
   {%- elif e.Literal.Bool is defined -%}{{ "true" if e.Literal.Bool else "false" }}
   {%- elif e.Literal.String is defined -%}"{{ e.Literal.String }}"
   {%- else -%}0{%- endif -%}
-{%- elif e.VarRef is defined and e.VarRef.name == "time" -%}
+{%- elif e is mapping and e.VarRef is defined and e.VarRef.name == "time" -%}
   t
-{%- elif e.VarRef is defined and e.VarRef.name == "Modelica.Constants.pi" -%}
+{%- elif e is mapping and e.VarRef is defined and e.VarRef.name == "Modelica.Constants.pi" -%}
   Math.PI
-{%- elif e.VarRef is defined and e.VarRef.name == "Modelica.Constants.e" -%}
+{%- elif e is mapping and e.VarRef is defined and e.VarRef.name == "Modelica.Constants.e" -%}
   Math.E
-{%- elif e.VarRef is defined -%}
+{%- elif e is mapping and e.VarRef is defined -%}
   {{- safe_symbol_ref(e.VarRef.name) -}}
-{%- elif e.BuiltinCall is defined -%}
+{%- elif e is mapping and e.BuiltinCall is defined -%}
   {%- set bc = e.BuiltinCall -%}
   {%- if bc.function|lower == "der" and bc.args|length == 1 -%}
     der_{{ render_symbol_expr(bc.args[0]) }}
@@ -496,19 +496,19 @@ return [];</textarea
   {%- else -%}
     {{ render_js_function_name(bc.function) }}({%- for a in bc.args -%}{{ render_expr(a) }}{{ ", " if not loop.last }}{%- endfor -%})
   {%- endif -%}
-{%- elif e.Terminal is defined -%}
+{%- elif e is mapping and e.Terminal is defined -%}
   {{- normalize_expr_text(e.Terminal.token.text) -}}
-{%- elif e.ComponentReference is defined and render_cref(e.ComponentReference) == "time" -%}
+{%- elif e is mapping and e.ComponentReference is defined and render_cref(e.ComponentReference) == "time" -%}
   t
-{%- elif e.ComponentReference is defined and render_cref(e.ComponentReference) == "Modelica.Constants.pi" -%}
+{%- elif e is mapping and e.ComponentReference is defined and render_cref(e.ComponentReference) == "Modelica.Constants.pi" -%}
   Math.PI
-{%- elif e.ComponentReference is defined and render_cref(e.ComponentReference) == "Modelica.Constants.e" -%}
+{%- elif e is mapping and e.ComponentReference is defined and render_cref(e.ComponentReference) == "Modelica.Constants.e" -%}
   Math.E
-{%- elif e.ComponentReference is defined -%}
+{%- elif e is mapping and e.ComponentReference is defined -%}
   {{- safe_symbol_ref(render_cref(e.ComponentReference)) -}}
-{%- elif e.Parenthesized is defined -%}
+{%- elif e is mapping and e.Parenthesized is defined -%}
   ({{ render_expr(e.Parenthesized.inner) }})
-{%- elif e.Unary is defined -%}
+{%- elif e is mapping and e.Unary is defined -%}
   {%- set u = e.Unary -%}
   {%- if u.op.Minus is defined -%}
     -({{ render_expr(u.rhs) }})
@@ -517,7 +517,7 @@ return [];</textarea
   {%- else -%}
     {{ render_expr(u.rhs) }}
   {%- endif -%}
-{%- elif e.Binary is defined -%}
+{%- elif e is mapping and e.Binary is defined -%}
   {%- set b = e.Binary -%}
   {%- set op -%}
     {%- if b.op.Add is defined -%}+{% elif b.op.Sub is defined -%}-{% elif b.op.Mul is defined -%}*{% elif b.op.Div is defined -%}/{% elif b.op.Pow is defined or b.op.Power is defined or b.op.Caret is defined or b.op.Exp is defined or b.op.Circumflex is defined -%}**
@@ -527,7 +527,7 @@ return [];</textarea
     {%- elif b.op.And is defined -%}&&{% elif b.op.Or is defined -%}||{% else -%}+{% endif -%}
   {%- endset -%}
   ({{ render_expr(b.lhs) }} {{ op }} {{ render_expr(b.rhs) }})
-{%- elif e.FunctionCall is defined -%}
+{%- elif e is mapping and e.FunctionCall is defined -%}
   {%- set f = e.FunctionCall -%}
   {%- set args = f.args if f.args is defined else [] -%}
   {%- set fname -%}
@@ -562,7 +562,7 @@ return [];</textarea
   {%- else -%}
     {{ render_js_function_name(fname) }}({%- for a in args -%}{{ render_expr(a) }}{{ ", " if not loop.last }}{%- endfor -%})
   {%- endif -%}
-{%- elif e.If is defined -%}
+{%- elif e is mapping and e.If is defined -%}
   {%- set branches = e.If.branches if e.If.branches is defined else [] -%}
   {%- set else_expr = e.If.else_branch if e.If.else_branch is defined else 0 -%}
   {%- if branches|length == 0 -%}
@@ -575,9 +575,9 @@ return [];</textarea
       ({{ render_expr(else_expr) }})
     )
   {%- endif -%}
-{%- elif e.FieldAccess is defined -%}
+{%- elif e is mapping and e.FieldAccess is defined -%}
   (({{ render_expr(e.FieldAccess.base) }})?.{{ e.FieldAccess.field }})
-{%- elif e.Index is defined -%}
+{%- elif e is mapping and e.Index is defined -%}
   {%- set subs = e.Index.subscripts if e.Index.subscripts is defined else [] -%}
   {%- if subs|length > 0 and subs[0].Expr is defined -%}
     (({{ render_expr(e.Index.base) }})[{{ render_expr(subs[0].Expr) }}])
@@ -644,6 +644,7 @@ function Model() {
   }
 
   var __taskyonFallbackSymbols = {};
+  var __taskyonSoftResolve = false;
 
   function __taskyonResolveSymbol(name) {
     if (!__taskyonFallbackSymbols || typeof __taskyonFallbackSymbols !== "object") {
@@ -676,6 +677,7 @@ function Model() {
       return __taskyonFallbackSymbols[suffixMatches[0]];
     }
     if (suffixMatches.length > 1) {
+      if (__taskyonSoftResolve) return Number.NaN;
       throw new Error(
         "Ambiguous symbol resolution for " +
           key +
@@ -683,6 +685,7 @@ function Model() {
           suffixMatches.slice(0, 6).join(", "),
       );
     }
+    if (__taskyonSoftResolve) return Number.NaN;
     return __taskyonMissingRef(name);
   }
 
@@ -938,6 +941,8 @@ function Model() {
   }
 
   function evalAlgebraics(t, xVec, yVec, uVec, pOverride) {
+    __taskyonSoftResolve = true;
+    try {
     var p = Object.assign({}, pDefaults, pOverride || {});
 
   {%- for (name, comp) in p_map|items %}
@@ -998,6 +1003,9 @@ function Model() {
     out[{{ y_map|length + z_map|length + m_map|length + w_map|length + loop.index0 }}] = {{ js_ident(obs.name) }};
   {%- endfor %}
     return out;
+    } finally {
+      __taskyonSoftResolve = false;
+    }
   }
 
   function applyResets(t, xVec, yVec, uVec, pOverride, cPrev, cCurr) {
@@ -2110,7 +2118,7 @@ simulateModel.contract = {
     if (typeof simulateModel !== 'function') return
     const prev = simulateModel.simDefaults
     const base = prev && typeof prev === 'object' ? prev : {}
-    simulateModel.simDefaults = { ...base, ...{"t0":0,"tf":10000,"dt":20} }
+    simulateModel.simDefaults = { ...base, ...{"t0":0,"tf":5,"dt":0.01} }
   } catch {
     /* empty */
   }
