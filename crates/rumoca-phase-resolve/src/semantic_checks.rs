@@ -1158,6 +1158,10 @@ fn check_block_connector_causality_restrictions(
                 && matches!(comp.causality, Causality::Empty)
                 // Also check if the type alias itself provides causality
                 && matches!(tc.causality, Causality::Empty)
+                // StateGraph-style connectors can be directionally typed via
+                // their member declarations (input/output) without component
+                // prefixes on the block member itself.
+                && !connector_members_define_causality(tc)
         {
             diags.push(semantic_error(
                 ER020_BLOCK_CONNECTOR_MISSING_IO_PREFIX,
@@ -1174,6 +1178,12 @@ fn check_block_connector_causality_restrictions(
             ));
         }
     }
+}
+
+fn connector_members_define_causality(connector: &ClassDef) -> bool {
+    connector.components.values().any(|member| {
+        !matches!(member.causality, Causality::Empty)
+    })
 }
 
 /// CONN-017: Check flow/potential balance in connector.
