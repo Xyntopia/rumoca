@@ -1,5 +1,8 @@
 use super::*;
 use rumoca_compile::compile::{reset_session_cache_stats, session_cache_stats};
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::source_root_api::sync_project_sources_with_cache_root_for_tests;
@@ -81,6 +84,41 @@ fn session_test_guard() -> std::sync::MutexGuard<'static, ()> {
     SESSION_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn collect_modelica_sources_recursive(root: &Path) -> BTreeMap<String, String> {
+    fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<String, String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, out);
+                continue;
+            }
+            if path.extension().and_then(|x| x.to_str()) != Some("mo") {
+                continue;
+            }
+            let Ok(src) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let key = rel.to_string_lossy().replace('\\', "/");
+            out.insert(key, src);
+        }
+    }
+
+    let mut files = BTreeMap::new();
+    walk(root, root, &mut files);
+    files
+}
+
+fn resolve_default_msl_root() -> PathBuf {
+    let cwd = std::env::current_dir().expect("current_dir should resolve");
+    cwd.join("../../target/msl/ModelicaStandardLibrary-4.1.0")
 }
 
 fn completion_labels(json: &str) -> Vec<String> {
@@ -691,6 +729,60 @@ fn test_compile_with_source_roots_ignores_unrelated_session_parse_errors() {
     );
 
     clear_source_root_cache();
+}
+
+#[test]
+#[ignore = "targeted local debug for known failing MSL Digital example models"]
+fn test_compile_msl_digital_examples_regression_probe() {
+    let _guard = session_test_guard();
+    clear_source_root_cache();
+
+    let msl_root = resolve_default_msl_root();
+    assert!(
+        msl_root.exists(),
+        "MSL root missing for regression probe: {}",
+        msl_root.display()
+    );
+    let all_files = collect_modelica_sources_recursive(&msl_root);
+    let include_prefixes = [
+        "Complex.mo",
+        "Modelica/package.mo",
+        "ModelicaServices/package.mo",
+        "ModelicaReference/package.mo",
+        "Modelica/Electrical/Digital/",
+        "Modelica/Electrical/Analog/",
+        "Modelica/Blocks/",
+        "Modelica/Math/",
+        "Modelica/Utilities/",
+        "Modelica/Constants.mo",
+        "Modelica/Icons/",
+        "Modelica/SIunits.mo",
+    ];
+    let files: BTreeMap<String, String> = all_files
+        .into_iter()
+        .filter(|(path, _)| include_prefixes.iter().any(|prefix| path.starts_with(prefix)))
+        .collect();
+    assert!(
+        !files.is_empty(),
+        "Expected .mo files under {}",
+        msl_root.display()
+    );
+    let source_roots_json = serde_json::to_string(&files).expect("source roots should serialize");
+    load_source_roots(&source_roots_json).expect("load_source_roots should succeed");
+
+    let models = [
+        "Modelica.Electrical.Digital.Examples.DFFREGSRL",
+        "Modelica.Electrical.Digital.Examples.DFFREGSRH",
+        "Modelica.Electrical.Digital.Examples.DFFREG",
+    ];
+    for model in models {
+        let result = compile_with_source_roots("", model, "{}");
+        assert!(
+            result.is_ok(),
+            "Expected compile success for {model}, got: {:?}",
+            result.err()
+        );
+    }
 }
 
 #[test]

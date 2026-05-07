@@ -1116,7 +1116,7 @@ fn check_connector_variability_restriction(
     let var_str = match &comp.variability {
         Variability::Parameter(_) => "parameter",
         Variability::Constant(_) => "constant",
-        _ => unreachable!(),
+        _ => return,
     };
     let prefix_label = match &comp.variability {
         Variability::Parameter(token) => label_from_token(
@@ -1129,7 +1129,7 @@ fn check_connector_variability_restriction(
             "check_cross_class_restrictions/connector_constant",
             "invalid 'constant' prefix on connector component",
         ),
-        _ => unreachable!(),
+        _ => return,
     };
     diags.push(semantic_error(
         ER027_CONNECTOR_PARAMETER_OR_CONSTANT,
@@ -1270,7 +1270,7 @@ fn check_parameter_variability(class: &ClassDef, diags: &mut Vec<Diagnostic>) {
         let var_str = match &comp.variability {
             Variability::Parameter(_) => "parameter",
             Variability::Constant(_) => "constant",
-            _ => unreachable!(),
+            _ => continue,
         };
         let label = label_from_expression_or_token(
             binding,

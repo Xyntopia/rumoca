@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::backtrace::Backtrace;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use wasm_bindgen::prelude::*;
@@ -242,9 +244,62 @@ pub fn compile_with_source_roots(
     model_name: &str,
     source_roots_json: &str,
 ) -> Result<String, JsValue> {
-    super::with_singleton_session(|session| {
-        load_source_root_sources_in_session(session, source_roots_json)?;
-        compile_source_in_session(session, source, model_name)
+    catch_unwind(AssertUnwindSafe(|| {
+        super::with_singleton_session(|session| {
+            load_source_root_sources_in_session(session, source_roots_json)?;
+            compile_source_in_session(session, source, model_name)
+        })
+    }))
+    .unwrap_or_else(|panic_payload| {
+        let panic_message = if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+            (*msg).to_string()
+        } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+            msg.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+        let bt = Backtrace::force_capture();
+        Err(JsValue::from_str(&format!(
+            "compile_with_source_roots panicked: {panic_message}\nbacktrace:\n{bt}"
+        )))
+    })
+}
+
+#[wasm_bindgen]
+pub fn compile_check_with_source_roots(
+    source: &str,
+    model_name: &str,
+    source_roots_json: &str,
+) -> Result<String, JsValue> {
+    catch_unwind(AssertUnwindSafe(|| {
+        super::with_singleton_session(|session| {
+            load_source_root_sources_in_session(session, source_roots_json)?;
+            session.update_document("input.mo", source);
+            let requested_model = super::qualify_input_model_name(session, model_name);
+            session
+                .check_model_strict_requested_only(&requested_model)
+                .map_err(|message| JsValue::from_str(&message))?;
+            Ok(
+                serde_json::json!({
+                    "status": "compiled",
+                    "model_name": requested_model,
+                })
+                .to_string(),
+            )
+        })
+    }))
+    .unwrap_or_else(|panic_payload| {
+        let panic_message = if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+            (*msg).to_string()
+        } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+            msg.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+        let bt = Backtrace::force_capture();
+        Err(JsValue::from_str(&format!(
+            "compile_check_with_source_roots panicked: {panic_message}\nbacktrace:\n{bt}"
+        )))
     })
 }
 
@@ -254,9 +309,24 @@ pub fn compile_with_project_sources(
     model_name: &str,
     project_sources_json: &str,
 ) -> Result<String, JsValue> {
-    super::with_singleton_session(|session| {
-        load_project_sources_in_session(session, project_sources_json)?;
-        compile_source_in_session(session, source, model_name)
+    catch_unwind(AssertUnwindSafe(|| {
+        super::with_singleton_session(|session| {
+            load_project_sources_in_session(session, project_sources_json)?;
+            compile_source_in_session(session, source, model_name)
+        })
+    }))
+    .unwrap_or_else(|panic_payload| {
+        let panic_message = if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+            (*msg).to_string()
+        } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+            msg.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+        let bt = Backtrace::force_capture();
+        Err(JsValue::from_str(&format!(
+            "compile_with_project_sources panicked: {panic_message}\nbacktrace:\n{bt}"
+        )))
     })
 }
 
