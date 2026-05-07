@@ -29,7 +29,7 @@ use rumoca_compile::Session;
 use rumoca_compile::codegen::render_dae_template_with_json;
 use rumoca_compile::codegen::templates as runtime_templates;
 use rumoca_compile::compile::{
-    CompilationResult, FailedPhase, PhaseResult, session_cache_stats,
+    CompilationMode, CompilationResult, FailedPhase, PhaseResult, session_cache_stats,
 };
 use rumoca_compile::parsing::ir_core as rumoca_ir_core;
 use rumoca_compile::parsing::{
@@ -109,7 +109,10 @@ fn wasm_elapsed_ms(start: WTimingStart) -> u64 {
 
 /// Initialize panic hook for better error messages in console.
 #[wasm_bindgen(start)]
-pub fn init() {}
+pub fn init() {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+}
 
 /// Initialize optional Rayon worker threads for wasm builds.
 ///
@@ -465,9 +468,16 @@ pub(crate) fn compile_requested_model(
     session: &mut Session,
     model_name: &str,
 ) -> Result<CompilationResult, JsValue> {
-    eprintln!("[rumoca-bind-debug] compile_requested_model start model={model_name}");
-    let mut report = session.compile_model_strict_requested_only(model_name);
-    eprintln!("[rumoca-bind-debug] compile_model_strict_requested_only returned");
+    let mut report = session.compile_model_with_mode(
+        model_name,
+        CompilationMode::StrictReachableUncachedWithRecovery,
+    );
+    if !report.failures.is_empty() {
+        return Err(JsValue::from_str(&format!(
+            "Compilation error: {}",
+            report.failure_summary(8)
+        )));
+    }
     match report.requested_result.take() {
         Some(PhaseResult::Success(result)) => Ok(*result),
         Some(PhaseResult::NeedsInner { missing_inners }) => Err(JsValue::from_str(&format!(
@@ -485,18 +495,10 @@ pub(crate) fn compile_requested_model(
                 "Compilation error: {phase_name} failed: {error}"
             )))
         }
-        None => {
-            if !report.failures.is_empty() {
-                Err(JsValue::from_str(&format!(
-                    "Compilation error: {}",
-                    report.failure_summary(8)
-                )))
-            } else {
-                Err(JsValue::from_str(
-                    "Compilation error: compile report did not include requested result",
-                ))
-            }
-        }
+        None => Err(JsValue::from_str(&format!(
+            "Compilation error: {}",
+            report.failure_summary(8)
+        ))),
     }
 }
 

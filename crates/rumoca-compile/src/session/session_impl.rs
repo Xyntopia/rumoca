@@ -4,21 +4,6 @@ use super::session_impl_queries::{QueryClassLookup, QueryClassNavigationTarget};
 use super::session_impl_symbols::*;
 use super::*;
 impl Session {
-    fn strict_debug_enabled() -> bool {
-        matches!(
-            std::env::var("RUMOCA_DEBUG_STRICT")
-                .ok()
-                .as_deref()
-                .map(str::trim),
-            Some("1" | "true" | "TRUE" | "yes" | "YES")
-        )
-    }
-
-    fn strict_debug_log(msg: impl AsRef<str>) {
-        if Self::strict_debug_enabled() {
-            eprintln!("[rumoca-strict-debug] {}", msg.as_ref());
-        }
-    }
     /// Return the current session revision token for snapshot/read coordination.
     pub fn revision(&self) -> u64 {
         self.current_revision.0
@@ -1038,83 +1023,6 @@ impl Session {
         self.compile_model_strict_reachable_report(model_name, true)
     }
 
-    /// Compile only the requested model under strict-recovery resolve semantics.
-    ///
-    /// Unlike strict-reachable-with-recovery, this avoids compiling every related
-    /// target in the reachable closure and is intended for memory-constrained
-    /// surfaces (for example wasm compile-check probes).
-    pub fn compile_model_strict_requested_only(&mut self, model_name: &str) -> StrictCompileReport {
-        let (resolved, resolve_diags) =
-            match self.build_resolved_for_strict_compile_with_diagnostics() {
-                Ok(build) => build,
-                Err(diags) => {
-                    let mut failures = Vec::new();
-                    failures.extend(diags.iter().map(|diag| ModelFailureDiagnostic {
-                        model_name: "<resolve>".to_string(),
-                        phase: None,
-                        error_code: diag.code.clone(),
-                        error: diag.message.clone(),
-                        primary_label: diag.labels.iter().find(|label| label.primary).cloned(),
-                    }));
-                    return StrictCompileReport {
-                        requested_model: model_name.to_string(),
-                        requested_result: None,
-                        summary: CompilationSummary::default(),
-                        failures,
-                        source_map: Some(self.session_source_map()),
-                    };
-                }
-            };
-
-        let tree = &resolved.0;
-        let closure = self.reachable_model_closure_query(
-            tree,
-            ResolveBuildMode::StrictCompileRecovery,
-            model_name,
-        );
-        let target_source_files = collect_target_source_files(tree, &closure.reachable_classes);
-        let mut failures = collect_parse_failures_for_files(
-            &self.documents,
-            &tree.source_map,
-            &target_source_files,
-        );
-        let resolve_failures = collect_resolve_failures_for_files(
-            &resolve_diags,
-            &tree.source_map,
-            &target_source_files,
-        );
-        let target_has_resolve_failures = !resolve_failures.is_empty();
-        failures.extend(resolve_failures);
-
-        let requested_result = if target_has_resolve_failures {
-            None
-        } else {
-            Some(self.compile_phase_result_query(
-                tree,
-                ResolveBuildMode::StrictCompileRecovery,
-                model_name,
-            ))
-        };
-        if let Some(ref result) = requested_result {
-            if let Some(failure) = phase_result_to_failure(tree, model_name, result) {
-                failures.push(failure);
-            }
-        }
-
-        let summary = requested_result
-            .as_ref()
-            .map(|result| CompilationSummary::from_results(&[(model_name.to_string(), result.clone())]))
-            .unwrap_or_default();
-
-        StrictCompileReport {
-            requested_model: model_name.to_string(),
-            requested_result,
-            summary,
-            failures,
-            source_map: Some(tree.source_map.clone()),
-        }
-    }
-
     /// Check strict-recovery compilation for the requested model without
     /// materializing full `CompilationResult` payloads.
     ///
@@ -1209,7 +1117,6 @@ impl Session {
         &mut self,
         model_name: &str,
     ) -> std::result::Result<Box<DaeCompilationResult>, String> {
-        Self::strict_debug_log(format!("start model={model_name}"));
         let (resolved, resolve_diags) =
             match self.build_resolved_for_strict_compile_with_diagnostics() {
                 Ok(build) => build,
@@ -1232,16 +1139,11 @@ impl Session {
             };
 
         let tree = &resolved.0;
-        Self::strict_debug_log("resolved build complete");
         let closure = self.reachable_model_closure_query(
             tree,
             ResolveBuildMode::StrictCompileRecovery,
             model_name,
         );
-        Self::strict_debug_log(format!(
-            "reachable closure complete targets={}",
-            closure.compile_targets.len()
-        ));
         let target_source_files = collect_target_source_files(tree, &closure.reachable_classes);
         let mut failures = collect_parse_failures_for_files(
             &self.documents,
@@ -1263,7 +1165,6 @@ impl Session {
             .cloned()
             .collect();
         for (name, result) in self.compile_models_without_cache(tree, &related_targets) {
-            Self::strict_debug_log(format!("compile related target={name}"));
             if let Some(failure) = phase_result_to_failure(tree, &name, &result) {
                 failures.push(failure);
             }
@@ -1278,7 +1179,6 @@ impl Session {
 
         let requested_result =
             self.dae_phase_result_query(tree, ResolveBuildMode::StrictCompileRecovery, model_name);
-        Self::strict_debug_log("requested dae phase query complete");
         let requested = dae_phase_result_requested_message(model_name, &requested_result);
         if let Some(failure) = dae_phase_result_to_failure(tree, model_name, &requested_result) {
             failures.push(failure);
@@ -1303,9 +1203,6 @@ impl Session {
         model_name: &str,
         use_compile_cache: bool,
     ) -> StrictCompileReport {
-        Self::strict_debug_log(format!(
-            "report start model={model_name} use_compile_cache={use_compile_cache}"
-        ));
         let (resolved, resolve_diags) =
             match self.build_resolved_for_strict_compile_with_diagnostics() {
                 Ok(build) => build,
@@ -1329,16 +1226,11 @@ impl Session {
             };
 
         let tree = &resolved.0;
-        Self::strict_debug_log("report resolved build complete");
         let closure = self.reachable_model_closure_query(
             tree,
             ResolveBuildMode::StrictCompileRecovery,
             model_name,
         );
-        Self::strict_debug_log(format!(
-            "report reachable closure complete targets={}",
-            closure.compile_targets.len()
-        ));
         let target_source_files = collect_target_source_files(tree, &closure.reachable_classes);
         let mut failures = collect_parse_failures_for_files(
             &self.documents,
@@ -1353,17 +1245,14 @@ impl Session {
         let target_has_resolve_failures = !resolve_failures.is_empty();
         failures.extend(resolve_failures);
         let results = if use_compile_cache {
-            Self::strict_debug_log("report compile_models_with_cache begin");
             self.compile_models_with_cache(
                 tree,
                 ResolveBuildMode::StrictCompileRecovery,
                 &closure.compile_targets,
             )
         } else {
-            Self::strict_debug_log("report compile_models_without_cache begin");
             self.compile_models_without_cache(tree, &closure.compile_targets)
         };
-        Self::strict_debug_log(format!("report compile models done count={}", results.len()));
         finalize_strict_compile_report(
             tree,
             model_name,

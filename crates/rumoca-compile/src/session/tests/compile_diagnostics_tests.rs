@@ -1,7 +1,4 @@
 use super::*;
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 
 #[test]
 fn test_merge_duplicate_class_diagnostic_has_primary_label() {
@@ -873,93 +870,7 @@ fn test_compile_recovers_after_document_parse_error() {
     );
 }
 
-fn discover_msl_root() -> PathBuf {
-    if let Ok(from_env) = std::env::var("RUMOCA_MSL_ROOT") {
-        let path = PathBuf::from(from_env);
-        if path.exists() {
-            return path;
-        }
-    }
-    let candidate = PathBuf::from("../../target/msl/ModelicaStandardLibrary-4.1.0");
-    if candidate.exists() {
-        return candidate;
-    }
-    panic!(
-        "MSL root not found; set RUMOCA_MSL_ROOT or extract MSL under {}",
-        candidate.display()
-    );
-}
-
-fn collect_modelica_sources_filtered(root: &Path) -> BTreeMap<String, String> {
-    fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<String, String>) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, root, out);
-                continue;
-            }
-            if path.extension().and_then(|x| x.to_str()) != Some("mo") {
-                continue;
-            }
-            let Ok(rel) = path.strip_prefix(root) else {
-                continue;
-            };
-            let key = rel.to_string_lossy().replace('\\', "/");
-            if key.contains("/Test") || key.contains("/Obsolete") {
-                continue;
-            }
-            let Ok(source) = fs::read_to_string(&path) else {
-                continue;
-            };
-            out.insert(key, source);
-        }
-    }
-
-    let mut out = BTreeMap::new();
-    walk(root, root, &mut out);
-    out
-}
-
 #[test]
-#[ignore = "targeted regression probe for Digital example compile failures"]
-fn test_regression_compile_digital_examples_from_msl_source_root() {
-    let mut session = Session::default();
-    let msl_root = discover_msl_root();
-    let sources = collect_modelica_sources_filtered(&msl_root);
-    assert!(
-        !sources.is_empty(),
-        "expected filtered MSL sources from {}",
-        msl_root.display()
-    );
-
-    let parsed = sources
-        .into_iter()
-        .map(|(uri, source)| {
-            let def = parse_definition(&source, &uri);
-            (uri, def)
-        })
-        .collect::<Vec<_>>();
-    session.replace_parsed_source_set("msl", SourceRootKind::DurableExternal, parsed, None);
-
-    let models = [
-        "Modelica.Electrical.Digital.Examples.DFFREGSRL",
-        "Modelica.Electrical.Digital.Examples.DFFREGSRH",
-        "Modelica.Electrical.Digital.Examples.DFFREG",
-    ];
-    for model in models {
-        let result = session.compile_model_phases(model);
-        assert!(
-            matches!(result, Ok(PhaseResult::Success(_))),
-            "expected compile success for {model}, got {result:?}"
-        );
-    }
-}
-
-#[test]
-#[ignore = "targeted reproducer for 2D enum-index table lookup crash"]
 fn test_regression_compile_enum_2d_index_lookup() {
     let mut session = Session::default();
     let source = r#"
@@ -987,38 +898,5 @@ end P;
     assert!(
         matches!(result, Ok(PhaseResult::Success(_))),
         "expected compile success for enum 2D lookup model, got {result:?}"
-    );
-}
-
-#[test]
-#[ignore = "targeted reproducer for DFFSR instantiation crash path"]
-fn test_regression_compile_dffsrh_minimal_instantiation() {
-    let mut session = Session::default();
-    let msl_root = discover_msl_root();
-    let sources = collect_modelica_sources_filtered(&msl_root);
-    let parsed = sources
-        .into_iter()
-        .map(|(uri, source)| {
-            let def = parse_definition(&source, &uri);
-            (uri, def)
-        })
-        .collect::<Vec<_>>();
-    session.replace_parsed_source_set("msl", SourceRootKind::DurableExternal, parsed, None);
-
-    let source = r#"
-model M
-  import L = Modelica.Electrical.Digital.Interfaces.Logic;
-  extends Modelica.Icons.Example;
-  Modelica.Electrical.Digital.Sources.Table clock(x={L.'0',L.'1',L.'0'}, t={0,10,11});
-  Modelica.Electrical.Digital.Registers.DFFREGSRH r(tHL=2,tLH=3,n=2);
-equation
-  connect(clock.y,r.clock);
-end M;
-"#;
-    session.update_document("input.mo", source);
-    let result = session.compile_model_phases("M");
-    assert!(
-        matches!(result, Ok(PhaseResult::Success(_))),
-        "expected compile success for DFFREGSRH minimal instantiation, got {result:?}"
     );
 }
