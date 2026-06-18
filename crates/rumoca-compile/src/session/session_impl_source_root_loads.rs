@@ -13,6 +13,7 @@ impl Session {
         definitions: Vec<(String, ast::StoredDefinition)>,
         exclude_uri: Option<&str>,
     ) -> usize {
+        self.lazy_source_root_indexes.shift_remove(source_set_id);
         let mut desired_docs: IndexMap<String, ast::StoredDefinition> = IndexMap::new();
         for (uri, parsed) in definitions {
             if exclude_uri.is_some_and(|excluded| same_path(&uri, excluded)) {

@@ -46,6 +46,7 @@ mod experiment;
 mod instrumentation;
 #[cfg(test)]
 mod instrumentation_tests;
+mod lazy_source_root_index;
 mod merge;
 mod package_layout;
 pub mod parallelism;
@@ -60,6 +61,9 @@ mod workspace_config;
 
 /// Source-root discovery and cache helpers.
 pub mod source_roots {
+    pub use crate::lazy_source_root_index::{
+        LazyClassEntry, LazyClassTreeNode, LazySourceRootIndex, LazySourceRootIndexSummary,
+    };
     pub use crate::package_layout::PackageLayoutError;
     pub use crate::session::SourceRootRefreshPlan;
     pub use crate::source_root_cache::{

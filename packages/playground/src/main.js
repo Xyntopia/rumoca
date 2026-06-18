@@ -2463,6 +2463,8 @@ function compileProgressLabel(progress) {
             return 'Loading package files...';
         case 'rumoca.workspace.effectiveSourceRoots':
             return 'Reading workspace settings...';
+        case 'rumoca.workspace.loadSourceRootIndex':
+            return 'Indexing package files...';
         case 'rumoca.workspace.mergeParsedSourceRootsBinary':
             return 'Restoring parsed package cache...';
         case 'rumoca.workspace.exportParsedSourceRootsBinary':

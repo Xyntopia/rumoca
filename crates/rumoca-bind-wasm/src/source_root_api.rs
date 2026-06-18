@@ -8,6 +8,7 @@ use rumoca_compile::compile::{
     SourceRootKind, compile_phase_timing_stats, reset_compile_phase_timing_stats,
 };
 use rumoca_compile::parsing::{StoredDefinition, parse_source_to_ast};
+use rumoca_compile::source_roots::LazySourceRootIndex;
 #[cfg(not(target_arch = "wasm32"))]
 use rumoca_compile::source_roots::resolve_source_root_cache_dir;
 
@@ -508,6 +509,27 @@ pub fn load_source_roots(source_roots_json: &str) -> Result<String, JsValue> {
         });
         serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
     })
+}
+
+#[wasm_bindgen]
+pub fn load_source_root_index(source_roots_json: &str) -> Result<String, JsValue> {
+    let sources = parse_text_sources_json(source_roots_json)?;
+    let index = LazySourceRootIndex::from_sources(
+        sources
+            .iter()
+            .map(|(uri, source)| (uri.as_str(), source.as_str())),
+    );
+    let summary = index.summary();
+    super::with_singleton_session(|session| {
+        session.replace_lazy_source_root_index(WASM_BUNDLED_SOURCE_ROOT_SET_ID, index);
+        Ok(())
+    })?;
+
+    let result = serde_json::json!({
+        "file_count": summary.file_count,
+        "class_count": summary.class_count,
+    });
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
 }
 
 #[wasm_bindgen]

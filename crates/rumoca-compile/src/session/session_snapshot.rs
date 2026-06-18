@@ -99,6 +99,7 @@ impl Session {
             current_revision: self.current_revision,
             next_revision: self.next_revision,
             source_root_indexing: SourceRootIndexingCoordinatorState::default(),
+            lazy_source_root_indexes: self.lazy_source_root_indexes.clone(),
             query_state: SessionQueryState {
                 ast: AstQueryState::default(),
                 resolved: self.query_state.resolved.clone(),
@@ -297,6 +298,7 @@ impl Session {
             current_revision: self.current_revision,
             next_revision: self.next_revision,
             source_root_indexing: SourceRootIndexingCoordinatorState::default(),
+            lazy_source_root_indexes: self.lazy_source_root_indexes.clone(),
             query_state: SessionQueryState {
                 ast: ast_query_state,
                 ..SessionQueryState::default()
@@ -387,6 +389,7 @@ impl Session {
             current_revision: self.current_revision,
             next_revision: self.next_revision,
             source_root_indexing: SourceRootIndexingCoordinatorState::default(),
+            lazy_source_root_indexes: IndexMap::new(),
             query_state: SessionQueryState {
                 ast: ast_query_state,
                 ..SessionQueryState::default()
@@ -456,6 +459,7 @@ impl Session {
             current_revision: self.current_revision,
             next_revision: self.next_revision,
             source_root_indexing: SourceRootIndexingCoordinatorState::default(),
+            lazy_source_root_indexes: self.lazy_source_root_indexes.clone(),
             query_state: SessionQueryState {
                 ast: ast_query_state,
                 ..SessionQueryState::default()

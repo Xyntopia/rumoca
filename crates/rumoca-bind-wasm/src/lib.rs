@@ -41,6 +41,7 @@ use rumoca_compile::codegen::targets::{
     RenderedTargetFile, TargetBundle, TargetTemplateIr, builtin_target_descriptors_for_ir,
     parse_target_manifest, render_dae_target_files, target_ir_is_dae_renderable,
 };
+use rumoca_compile::codegen::{render_dae_template_with_name, render_flat_template_with_name};
 use rumoca_compile::compile::{
     CompilationMode, CompilationResult, CompilePhaseTimingSnapshot, FailedPhase, PhaseResult,
     compile_phase_timing_stats, reset_compile_phase_timing_stats, session_cache_stats,
@@ -50,6 +51,7 @@ use rumoca_compile::parsing::{
     StoredDefinition, Variability, collect_model_names, parse_source_to_ast,
     parse_source_to_ast_with_errors,
 };
+use rumoca_compile::source_roots::LazyClassTreeNode;
 use rumoca_tool_lint::{LintOptions, lint as lint_source};
 use rumoca_tool_lsp::completion_metrics::{
     CompletionTimingSummary, extract_namespace_completion_prefix,
@@ -76,8 +78,8 @@ pub use crate::source_root_api::{
     compile_with_source_roots_with_options, compile_with_workspace_sources,
     export_parsed_source_roots_binary, get_bundled_source_root_manifest,
     get_source_root_document_count, get_source_root_statuses, load_bundled_source_root_cache,
-    load_source_roots, merge_parsed_source_roots, merge_parsed_source_roots_binary,
-    parse_source_root_file, sync_workspace_sources,
+    load_source_root_index, load_source_roots, merge_parsed_source_roots,
+    merge_parsed_source_roots_binary, parse_source_root_file, sync_workspace_sources,
 };
 #[cfg(any(feature = "sim-diffsol", feature = "sim-rk45"))]
 pub use crate::stepper_api::WasmStepper;
@@ -108,6 +110,12 @@ const BUNDLED_SOURCE_ROOT_MANIFEST_JSON: &str = include_str!(concat!(
 ));
 const BUNDLED_SOURCE_ROOT_CACHE_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/bundled_source_root_cache.bin"));
+const BASE_MODELICA_TEMPLATE: &str =
+    include_str!("../../rumoca-phase-codegen/src/templates/base-modelica/base_modelica.mo.jinja");
+const FLAT_MODELICA_TEMPLATE: &str =
+    include_str!("../../rumoca-phase-codegen/src/templates/flat-modelica/flat_modelica.mo.jinja");
+const DAE_MODELICA_TEMPLATE: &str =
+    include_str!("../../rumoca-phase-codegen/src/templates/dae-modelica/dae_modelica.mo.jinja");
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -536,10 +544,8 @@ pub(crate) fn compile_requested_model(
     session: &mut Session,
     model_name: &str,
 ) -> Result<CompilationResult, JsValue> {
-    let mut report = session.compile_model_with_mode(
-        model_name,
-        CompilationMode::StrictReachableUncachedWithRecovery,
-    );
+    let mut report =
+        session.compile_model_with_mode(model_name, CompilationMode::StrictReachableWithRecovery);
     if !report.failures.is_empty() {
         return Err(JsValue::from_str(&format!(
             "Compilation error: {}",
@@ -651,6 +657,43 @@ fn compile_source_in_session(
     build_compile_response(&result, timing)
 }
 
+fn render_modelica_view_from_result(
+    result: &CompilationResult,
+    model_name: &str,
+    view: &str,
+) -> Result<String, JsValue> {
+    match view {
+        "base-modelica" => {
+            render_flat_template_with_name(&result.flat, BASE_MODELICA_TEMPLATE, model_name)
+                .map_err(|error| JsValue::from_str(&format!("Render failed: {error}")))
+        }
+        "flat-modelica" => {
+            render_flat_template_with_name(&result.flat, FLAT_MODELICA_TEMPLATE, model_name)
+                .map_err(|error| JsValue::from_str(&format!("Render failed: {error}")))
+        }
+        "dae-modelica" => {
+            render_dae_template_with_name(&result.dae, DAE_MODELICA_TEMPLATE, model_name)
+                .map_err(|error| JsValue::from_str(&format!("Render failed: {error}")))
+        }
+        _ => Err(JsValue::from_str(&format!(
+            "Unknown Modelica view '{view}'"
+        ))),
+    }
+}
+
+fn render_modelica_view_in_session(
+    session: &mut Session,
+    source: &str,
+    model_name: &str,
+    view: &str,
+) -> Result<String, JsValue> {
+    reset_compile_phase_timing_stats();
+    session.update_document("input.mo", source);
+    let requested_model = qualify_input_model_name(session, model_name);
+    let result = compile_requested_model(session, &requested_model)?;
+    render_modelica_view_from_result(&result, &requested_model, view)
+}
+
 /// Compile Modelica source code to DAE JSON.
 #[wasm_bindgen]
 pub fn compile(source: &str, model_name: &str) -> Result<String, JsValue> {
@@ -661,6 +704,14 @@ pub fn compile(source: &str, model_name: &str) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn compile_to_json(source: &str, model_name: &str) -> Result<String, JsValue> {
     compile(source, model_name)
+}
+
+/// Compile the current model in-session and render a textual Modelica IR view.
+#[wasm_bindgen]
+pub fn render_modelica_view(source: &str, model_name: &str, view: &str) -> Result<String, JsValue> {
+    with_singleton_session(|session| {
+        render_modelica_view_in_session(session, source, model_name, view)
+    })
 }
 
 /// Discover compilable simulation models in a source document.
@@ -1022,6 +1073,20 @@ fn parsed_class_tree(session: &Session) -> Result<Vec<WasmClassTreeNode>, JsValu
     Ok(classes)
 }
 
+fn lazy_tree_node_to_wasm(node: LazyClassTreeNode) -> WasmClassTreeNode {
+    WasmClassTreeNode {
+        name: node.name,
+        qualified_name: node.qualified_name,
+        class_type: node.class_type,
+        partial: node.partial,
+        children: node
+            .children
+            .into_iter()
+            .map(lazy_tree_node_to_wasm)
+            .collect(),
+    }
+}
+
 fn count_classes(node: &WasmClassTreeNode) -> Result<usize, JsValue> {
     let mut total = 1usize;
     for child in &node.children {
@@ -1079,7 +1144,13 @@ fn find_class_in_session<'a>(session: &'a Session, qualified_name: &str) -> Opti
 }
 
 fn list_classes_in_session(session: &mut Session) -> Result<String, JsValue> {
-    let classes = parsed_class_tree(session)?;
+    let mut classes = session
+        .lazy_source_root_class_tree()
+        .into_iter()
+        .map(lazy_tree_node_to_wasm)
+        .collect::<Vec<_>>();
+    classes.extend(parsed_class_tree(session)?);
+
     let mut total_classes = 0usize;
     for class in &classes {
         total_classes = total_classes

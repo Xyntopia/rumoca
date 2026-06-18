@@ -54,6 +54,63 @@ const MINI_MODELICA_PID_LIBRARY: &str = r#"
     end Modelica;
     "#;
 
+const QUOTED_OPERATOR_LIBRARY: &str = r#"
+    within ;
+    operator record Complex
+      encapsulated operator 'constructor' "Constructor"
+        function fromReal
+          annotation(Documentation(info="<html>
+<p>This function returns a Complex number.</p>
+</html>"));
+        end fromReal;
+      end 'constructor';
+
+      encapsulated operator function '0' "Zero-element"
+        annotation(Documentation(info="<html>
+<p>This function returns the zero element.</p>
+</html>"));
+      end '0';
+
+      encapsulated operator '-'
+        function negate
+        end negate;
+
+        function subtract
+        end subtract;
+      end '-';
+
+      encapsulated operator '*'
+        function multiply
+        end multiply;
+
+        function scalarProduct
+          output String s="";
+        algorithm
+          for i in 1:2 loop
+            s := s + "x";
+          end for;
+          annotation(Documentation(info="<html>
+<p>This function returns the scalar product.</p>
+</html>"));
+        end scalarProduct;
+      end '*';
+
+      encapsulated operator function '+'
+        annotation(Documentation(info="<html>
+<p>This function returns the sum.</p>
+</html>"));
+      end '+';
+
+      encapsulated operator function 'String'
+        output String s="";
+      algorithm
+        if true then
+          s := "Complex";
+        end if;
+      end 'String';
+    end Complex;
+    "#;
+
 const USES_MODELICA_SOURCE: &str = r#"
     model UsesModelica
       import Modelica.Blocks.Sources.Constant;
@@ -99,6 +156,13 @@ fn mini_modelica_source_root_json() -> String {
 fn mini_modelica_pid_source_root_json() -> String {
     serde_json::json!({
         "Modelica/package.mo": MINI_MODELICA_PID_LIBRARY,
+    })
+    .to_string()
+}
+
+fn quoted_operator_source_root_json() -> String {
+    serde_json::json!({
+        "Complex.mo": QUOTED_OPERATOR_LIBRARY,
     })
     .to_string()
 }
@@ -1331,6 +1395,106 @@ fn test_list_classes_wrapper_tolerates_resolve_failures() {
         }),
         "expected parsed class tree to include BrokenLib.Broken despite resolve errors: {tree:?}"
     );
+
+    clear_source_root_cache().expect("clear source-root cache");
+}
+
+#[test]
+fn test_load_source_root_index_lists_classes_without_parsing_source_root() {
+    let _guard = session_test_guard();
+    clear_source_root_cache().expect("clear source-root cache");
+
+    let result_json = load_source_root_index(&mini_modelica_source_root_json())
+        .expect("load_source_root_index should succeed");
+    let result: serde_json::Value =
+        serde_json::from_str(&result_json).expect("index summary should be valid JSON");
+    assert_eq!(
+        result.get("file_count").and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert_eq!(
+        result.get("class_count").and_then(|value| value.as_u64()),
+        Some(4)
+    );
+    assert_eq!(
+        get_source_root_document_count().expect("source-root document count"),
+        0,
+        "indexing should not insert parsed source-root documents"
+    );
+
+    let json = list_classes().expect("list_classes should use lazy source-root index");
+    let tree: serde_json::Value = serde_json::from_str(&json).expect("valid class tree JSON");
+    assert_eq!(
+        tree.get("total_classes").and_then(|value| value.as_u64()),
+        Some(4)
+    );
+    let classes = tree
+        .get("classes")
+        .and_then(|value| value.as_array())
+        .expect("class tree should include classes array");
+    let modelica = classes
+        .iter()
+        .find(|node| {
+            node.get("qualified_name").and_then(|value| value.as_str()) == Some("Modelica")
+        })
+        .expect("expected Modelica package from lazy index");
+    assert!(
+        modelica
+            .to_string()
+            .contains("Modelica.Blocks.Sources.Constant"),
+        "expected nested Constant model from lazy index: {tree:?}"
+    );
+
+    clear_source_root_cache().expect("clear source-root cache");
+}
+
+#[test]
+fn test_load_source_root_index_preserves_quoted_operator_hierarchy() {
+    let _guard = session_test_guard();
+    clear_source_root_cache().expect("clear source-root cache");
+
+    load_source_root_index(&quoted_operator_source_root_json())
+        .expect("load_source_root_index should succeed");
+    let json = list_classes().expect("list_classes should use lazy source-root index");
+    let tree: serde_json::Value = serde_json::from_str(&json).expect("valid class tree JSON");
+    let classes = tree
+        .get("classes")
+        .and_then(|value| value.as_array())
+        .expect("class tree should include classes array");
+    let complex = classes
+        .iter()
+        .find(|node| node.get("qualified_name").and_then(|value| value.as_str()) == Some("Complex"))
+        .expect("expected Complex root from lazy index");
+    let complex_json = complex.to_string();
+    for expected in [
+        "\"qualified_name\":\"Complex.constructor\"",
+        "\"qualified_name\":\"Complex.constructor.fromReal\"",
+        "\"qualified_name\":\"Complex.0\"",
+        "\"qualified_name\":\"Complex.-.negate\"",
+        "\"qualified_name\":\"Complex.-.subtract\"",
+        "\"qualified_name\":\"Complex.*.multiply\"",
+        "\"qualified_name\":\"Complex.*.scalarProduct\"",
+        "\"qualified_name\":\"Complex.+\"",
+        "\"qualified_name\":\"Complex.String\"",
+    ] {
+        assert!(
+            complex_json.contains(expected),
+            "expected nested operator node {expected}: {tree:?}"
+        );
+    }
+    for unexpected in [
+        "\"qualified_name\":\"Complex.negate\"",
+        "\"qualified_name\":\"Complex.function\"",
+        "\"qualified_name\":\"Complex.constructor.s\"",
+        "\"qualified_name\":\"Complex.constructor.fromReal.returns\"",
+        "\"qualified_name\":\"Complex.*.scalarProduct.returns\"",
+        "\"qualified_name\":\"Complex.*.s\"",
+    ] {
+        assert!(
+            !complex_json.contains(unexpected),
+            "unexpected leaked node {unexpected}: {tree:?}"
+        );
+    }
 
     clear_source_root_cache().expect("clear source-root cache");
 }

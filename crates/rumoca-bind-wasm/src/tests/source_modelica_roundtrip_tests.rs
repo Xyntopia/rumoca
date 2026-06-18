@@ -146,3 +146,47 @@ fn test_get_class_info_package_redeclare_roundtrip_characterization() {
 
     clear_source_root_cache().expect("clear source-root cache");
 }
+
+#[test]
+fn test_render_modelica_view_for_source_root_model() {
+    let _guard = session_test_guard();
+    clear_source_root_cache().expect("clear source-root cache");
+
+    load_source_roots(MINI_RESISTOR_EXAMPLE_SOURCE_ROOTS)
+        .expect("load_source_roots should succeed");
+
+    let base = render_modelica_view(
+        "",
+        "Modelica.Electrical.Analog.Examples.Resistor",
+        "base-modelica",
+    )
+    .expect("base-modelica render should succeed");
+    assert!(
+        base.contains("model Modelica.Electrical.Analog.Examples.Resistor"),
+        "base-modelica output should mention the fully-qualified model name, got: {base}"
+    );
+
+    let flat = render_modelica_view(
+        "",
+        "Modelica.Electrical.Analog.Examples.Resistor",
+        "flat-modelica",
+    )
+    .expect("flat-modelica render should succeed");
+    assert!(
+        flat.contains("SineVoltage1"),
+        "flat-modelica output should include flattened component names, got: {flat}"
+    );
+
+    let dae = render_modelica_view(
+        "",
+        "Modelica.Electrical.Analog.Examples.Resistor",
+        "dae-modelica",
+    )
+    .expect("dae-modelica render should succeed");
+    assert!(
+        dae.contains("class Modelica.Electrical.Analog.Examples.Resistor"),
+        "dae-modelica output should mention the fully-qualified class name, got: {dae}"
+    );
+
+    clear_source_root_cache().expect("clear source-root cache");
+}

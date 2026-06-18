@@ -68,6 +68,7 @@ impl Session {
             current_revision: RevisionId::default(),
             next_revision: 0,
             source_root_indexing: SourceRootIndexingCoordinatorState::default(),
+            lazy_source_root_indexes: IndexMap::new(),
             snapshot_cache,
             lightweight_snapshot_cache,
             workspace_symbol_snapshot_cache,

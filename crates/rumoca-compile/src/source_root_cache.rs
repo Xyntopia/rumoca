@@ -540,6 +540,51 @@ mod tests {
     }
 
     #[test]
+    fn warm_source_root_cache_hit_skips_reparse_timing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let lib_dir = temp.path().join("lib");
+        let cache_dir = temp.path().join("cache");
+        std::fs::create_dir_all(&lib_dir).expect("mkdir");
+        std::fs::write(lib_dir.join("package.mo"), "package Lib\nend Lib;\n")
+            .expect("write package");
+        for index in 0..24 {
+            std::fs::write(
+                lib_dir.join(format!("M{index}.mo")),
+                format!(
+                    "within Lib;\nmodel M{index}\n  Real x;\nequation\n  der(x) = {index}.0;\nend M{index};\n"
+                ),
+            )
+            .expect("write model");
+        }
+
+        let first =
+            parse_source_root_with_cache_in(&lib_dir, Some(&cache_dir)).expect("first parse");
+        assert_eq!(first.cache_status, SourceRootCacheStatus::Miss);
+        assert_eq!(first.file_count, 25);
+
+        let second =
+            parse_source_root_with_cache_in(&lib_dir, Some(&cache_dir)).expect("second parse");
+        assert_eq!(second.cache_status, SourceRootCacheStatus::Hit);
+        assert_eq!(second.file_count, first.file_count);
+        assert_eq!(
+            second.timing.parse_files_ms, 0,
+            "warm source-root cache hit must not fall back to parsing files"
+        );
+        assert_eq!(
+            second.timing.cache_write_ms, 0,
+            "warm source-root cache hit should not rewrite parsed artifacts"
+        );
+        assert!(
+            second.timing.total_ms
+                >= second.timing.collect_files_ms
+                    + second.timing.hash_inputs_ms
+                    + second.timing.cache_deserialize_ms
+                    + second.timing.validate_layout_ms,
+            "reported warm timing should account for cache hydration work"
+        );
+    }
+
+    #[test]
     fn resolve_source_root_cache_dir_is_absolute_and_stable() {
         let path = resolve_source_root_cache_dir().expect("cache dir should resolve by default");
         assert!(path.is_absolute(), "cache dir must be absolute: {path:?}");

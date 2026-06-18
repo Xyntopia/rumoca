@@ -62,6 +62,7 @@ use crate::instrumentation::{
     record_strict_resolved_build, record_strict_resolved_state_invalidation,
     record_typed_model_build, record_typed_model_cache_hit, record_typed_model_cache_miss,
 };
+use crate::lazy_source_root_index::{LazyClassTreeNode, LazySourceRootIndex};
 use crate::merge::{collect_class_type_counts, collect_model_names, merge_stored_definitions};
 use crate::source_root_cache::{
     SourceRootCacheStatus, parse_source_root_with_cache_in, resolve_source_root_cache_dir,
@@ -1950,6 +1951,9 @@ pub struct Session {
     next_revision: u64,
     /// Session-owned source-root indexing coordinator state for thin clients.
     source_root_indexing: SourceRootIndexingCoordinatorState,
+    /// Lightweight declaration indexes for source roots whose text has been
+    /// seen but whose files do not need to be parsed eagerly.
+    lazy_source_root_indexes: IndexMap<String, LazySourceRootIndex>,
     /// All incremental ownership state for AST, resolved, flattened, and DAE tiers.
     query_state: SessionQueryState,
     /// Shared immutable snapshot for the current revision so read requests

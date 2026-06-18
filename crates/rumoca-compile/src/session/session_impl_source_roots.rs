@@ -2,6 +2,26 @@ use super::package_def_map::{leaf_dirty_prefixes, qualified_name_in_subtree};
 use super::*;
 
 impl Session {
+    pub fn replace_lazy_source_root_index(
+        &mut self,
+        source_root_key: &str,
+        index: LazySourceRootIndex,
+    ) {
+        self.lazy_source_root_indexes
+            .insert(source_root_key.to_string(), index);
+    }
+
+    pub fn lazy_source_root_index(&self, source_root_key: &str) -> Option<&LazySourceRootIndex> {
+        self.lazy_source_root_indexes.get(source_root_key)
+    }
+
+    pub fn lazy_source_root_class_tree(&self) -> Vec<LazyClassTreeNode> {
+        self.lazy_source_root_indexes
+            .values()
+            .flat_map(LazySourceRootIndex::class_tree)
+            .collect()
+    }
+
     pub(super) fn mark_source_root_graph_changed(&mut self) {
         self.source_root_indexing.state_epoch =
             self.source_root_indexing.state_epoch.saturating_add(1);
